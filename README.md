@@ -15,6 +15,10 @@ Explore the Companion’s ten screens, switch between four themes, and share the
 
 Download the signed [YinYang App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) on Android. Open the Manager to download and install the Companion or to check for updates. The [release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json) lists each package, version, file size and SHA-256. The Manager verifies the package and pinned Lab signing certificate before opening the Android installer.
 
+### Connect your 5K
+
+In Companion 0.9.9, open **Presets → Connect**. Android opens its Bluetooth settings. Pair or connect your original **Qudelix-5K**, then return to Companion. Allow **Nearby devices** if Android asks. If you have multiple original 5Ks paired, select yours. Companion shows **Connected** once it reads the presets. Use **Refresh** to read them again.
+
 The Android applications are built in the Lab development workspace. This repository holds the distribution records and signed release assets.
 
 ## Use at your own risk
