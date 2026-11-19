@@ -11,6 +11,8 @@ See the full list of available controls, YinYang additions, and the mixing and m
 
 ## Install and update
 
+Explore the Companion’s ten screens, switch between four themes, and share the Android download page with friends. [Companion for Qudelix 5K on Android](https://yinyangeq.com/q5k4android)
+
 Download the signed [YinYang App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) on Android. Open the Manager to download and install the Companion or to check for updates. The [release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json) lists each package, version, file size and SHA-256. The Manager verifies the package and pinned Lab signing certificate before opening the Android installer.
 
 The Android applications are built in the Lab development workspace. This repository holds the distribution records and signed release assets.
