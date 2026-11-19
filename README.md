@@ -18,3 +18,7 @@ The Android applications are built in the Lab development workspace. This reposi
 ## Use at your own risk
 
 Check volume, routing and EQ before listening. Begin at low volume and run measurement sweeps with the IEM seated in the coupler and out of your ears. Frequency response and SPL accuracy depend on the recording path and calibration.
+
+## License and credits
+
+Copyright © 2026 Yin Yang EQ Lab. The Lab’s original Android software is licensed under Apache 2.0. The Lab reserves its branding, copy, screenshots, and visual design. Third-party components, measurements, and other materials retain their own rights and licenses. [Apache 2.0 license](LICENSE) · [License scope](LICENSE_SCOPE.md) · [Notices](NOTICE)
