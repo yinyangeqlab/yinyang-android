@@ -4,7 +4,7 @@ YinYang EQ Lab privately develops the Companion and maintains this repository fo
 
 | App | Purpose |
 | --- | --- |
-| YinYang App Manager | Downloads signed updates, applies compatible incremental patches, and sends verified builds to Android for installation. Requires Android 9 or later. |
+| YinYang App Manager | Checks for Lab app updates, sends optional update alerts, and saves verified APKs to the phone's Download folder. Requires Android 9 or later. |
 | YinYang Companion App for Qudelix 5K | Controls the original Qudelix 5K, manages PEQ and channel matching, runs blind listening comparisons, and configures the 5K’s USB playback and microphone settings. Qudelix 5K Plus support is coming soon. |
 
 See the full list of available controls, YinYang additions, and the mixing and measurement research. [Android feature guide](FEATURES.md)
@@ -13,7 +13,9 @@ See the full list of available controls, YinYang additions, and the mixing and m
 
 Explore the Companion’s ten screens, switch between four themes, and share the Android download page with friends. [Companion for Qudelix 5K on Android](https://yinyangeq.com/q5k4android)
 
-Download the signed [YinYang App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) on Android. Open the Manager to download and install the Companion or to check for updates. The [release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json) lists each package, version, file size and SHA-256. The Manager verifies the package and pinned Lab signing certificate before opening the Android installer.
+Download the signed Manager or install the Companion directly from the Android page. [Android downloads](https://yinyangeq.com/q5k4android#install)
+
+In Manager 1.4.4, tap **Download APK** or **Download update**. The Manager verifies the package, checksum and Lab signing certificate before saving the APK. Tap **Open download folder**, select the APK, and confirm in Android's installer. Keep Play Protect enabled. On Android 9, choose the Download folder when the save picker opens. If Files opens a Downloads list, select the phone's internal storage and open **Download**. [Release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json)
 
 ### Connect your 5K
 
