@@ -1,6 +1,6 @@
 # YinYang Android releases
 
-Yin Yang EQ Lab maintains this repository for official Android downloads.
+YinYang EQ Lab privately develops the Companion and maintains this repository for official Android downloads. The Lab has no affiliation with Qudelix, Inc. We encourage you to use your 5K with [YinYang EQ](https://yinyangeq.com) to explore headphone tunings, build a PEQ, and listen to it on your device.
 
 | App | Purpose |
 | --- | --- |
@@ -17,4 +17,4 @@ The Android applications are built in the Lab development workspace. This reposi
 
 ## Use at your own risk
 
-Check volume, routing and EQ before listening. Begin at low volume and run measurement sweeps with the IEM seated in the coupler and out of your ears. Frequency response and SPL accuracy depend on the recording path and calibration. YinYang EQ Lab is independent of Qudelix.
+Check volume, routing and EQ before listening. Begin at low volume and run measurement sweeps with the IEM seated in the coupler and out of your ears. Frequency response and SPL accuracy depend on the recording path and calibration.
