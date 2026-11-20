@@ -1,30 +1,21 @@
-# YinYang Android releases
+# YinYangEQ for Android
 
-YinYang EQ Lab privately develops the Companion and maintains this repository for official Android downloads. The Lab has no affiliation with Qudelix, Inc. We encourage you to use your 5K with [YinYang EQ](https://yinyangeq.com) to explore headphone tunings, build a PEQ, and listen to it on your device.
+One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one DAC at a time. The app identifies the model before loading its controls and keeps local drafts for that unit. Yin Yang EQ Lab develops this independent app.
 
-| App | Purpose |
-| --- | --- |
-| YinYang App Manager | Checks for Lab app updates, sends optional update alerts, and saves verified APKs to the phone's Download folder. Requires Android 9 or later. |
-| YinYang Companion App for Qudelix 5K | Controls the original Qudelix 5K, manages PEQ and channel matching, runs blind listening comparisons, and configures the 5K’s USB playback and microphone settings. |
-| YinYang 5K Plus Companion (0.6.0-preview) | Separate app for the Qudelix 5K Plus, with its own settings for shared PEQ, channel matching and device presets. Select **YinYang 5K Plus Companion** in App Manager to install or update it. |
+| Download | Android version | Release |
+| --- | --- | --- |
+| [YinYangEQ Q5K Companion App](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Companion.apk) | 8 or later | 0.16.1 |
+| [YinYang App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) | 9 or later | 1.6.0 |
 
-See the full list of available controls, YinYang additions, and the mixing and measurement research. [Android feature guide](FEATURES.md)
+[Android page and theme gallery](https://yinyangeq.com/q5k4android?release=0.16.1) · [Feature guide](FEATURES.md)
 
-## Install and update
+## Install or update
 
-Explore the Companion’s ten screens, switch between four themes, and share the Android download page with friends. [Companion for Qudelix 5K on Android](https://yinyangeq.com/q5k4android)
+In App Manager, choose **YinYangEQ Qudelix 5k and 5K Plus Companion App**. Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. Manager also checks for its own updates.
 
-Download the signed Manager or install the Companion directly from the Android page. [Android downloads](https://yinyangeq.com/q5k4android#install)
+The unified app uses the original release Companion package. If you have phone-only presets in an earlier app, export them before switching. The separate Plus preview uses a different package. Install the unified app alongside it, link your DAC and import any exported presets you want to keep.
 
-App Manager appears as **YinYangEQ** on Android. In App Manager 1.5.5, the original 5K Companion, 5K Plus Companion and App Manager each have their own entry and show **Up to date** when current. Use **Enable/Disable Notifications for Update Alerts** and **Choose Which Apps Receive Update Notifications** to manage alerts. Turning alerts off keeps your app selections. When multiple updates are available, the alert names each app.
-
-Tap **Update** for one installed app or **Update all** to download all available updates for installed apps. Use **Download APK** for a first install. The Manager verifies each package, checksum and Lab signing certificate. Tap **Install…**, select the APK in Android Files, and confirm in Android's installer. The note below the app list explains the Files handoff and why Play Protect may still ask to scan the APK. Keep Play Protect enabled. On Android 9, choose a save location when the picker opens. [Release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json)
-
-### Connect your 5K
-
-In Companion 0.9.9, open **Presets → Connect**. Android opens its Bluetooth settings. Pair or connect your original **Qudelix-5K**, then return to Companion. Allow **Nearby devices** if Android asks. If you have multiple original 5Ks paired, select yours. Companion shows **Connected** once it reads the presets. Use **Refresh** to read them again.
-
-The Android applications are built in the Lab development workspace. This repository holds the distribution records and signed release assets.
+The Lab maintains the Android source in its development workspace. This repository holds distribution records and signed downloads.
 
 ## Use at your own risk
 
