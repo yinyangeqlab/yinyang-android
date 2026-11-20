@@ -6,7 +6,7 @@ YinYang EQ Lab privately develops the Companion and maintains this repository fo
 | --- | --- |
 | YinYang App Manager | Checks for Lab app updates, sends optional update alerts, and saves verified APKs to the phone's Download folder. Requires Android 9 or later. |
 | YinYang Companion App for Qudelix 5K | Controls the original Qudelix 5K, manages PEQ and channel matching, runs blind listening comparisons, and configures the 5K’s USB playback and microphone settings. |
-| YinYang 5K Plus Companion (preview) | Separate app for the Qudelix 5K Plus, with its own settings for shared PEQ, channel matching and device presets. |
+| YinYang 5K Plus Companion (0.6.0-preview) | Separate app for the Qudelix 5K Plus, with its own settings for shared PEQ, channel matching and device presets. Select **YinYang 5K Plus Companion** in App Manager to install or update it. |
 
 See the full list of available controls, YinYang additions, and the mixing and measurement research. [Android feature guide](FEATURES.md)
 
