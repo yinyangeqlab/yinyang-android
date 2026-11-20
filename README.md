@@ -15,9 +15,9 @@ Explore the Companion’s ten screens, switch between four themes, and share the
 
 Download the signed Manager or install the Companion directly from the Android page. [Android downloads](https://yinyangeq.com/q5k4android#install)
 
-App Manager 1.5.3 appears as **YinYangEQ** on Android. App Manager and Companion stay visible in its list and show **Up to date** when current. Use **Enable/Disable Notifications for Update Alerts** and **Choose Which Apps Receive Update Notifications** to manage alerts. Turning alerts off keeps your app selections.
+App Manager appears as **YinYangEQ** on Android. App Manager and Companion stay visible in its list and show **Up to date** when current. App Manager 1.5.4 labels build numbers alongside versions, such as **0.9.9 · Build #29**. Use **Enable/Disable Notifications for Update Alerts** and **Choose Which Apps Receive Update Notifications** to manage alerts. Turning alerts off keeps your app selections.
 
-Tap **Update** for one installed app or **Update all** to download all available updates for installed apps. Use **Download APK** for a first install. The Manager verifies each package, checksum and Lab signing certificate. Tap **Install…**, select the APK in Android Files, and confirm in Android's installer. Keep Play Protect enabled. On Android 9, choose a save location when the picker opens. [Release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json)
+Tap **Update** for one installed app or **Update all** to download all available updates for installed apps. Use **Download APK** for a first install. The Manager verifies each package, checksum and Lab signing certificate. Tap **Install…**, select the APK in Android Files, and confirm in Android's installer. The note below the app list explains the Files handoff and why Play Protect may still ask to scan the APK. Keep Play Protect enabled. On Android 9, choose a save location when the picker opens. [Release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json)
 
 ### Connect your 5K
 
