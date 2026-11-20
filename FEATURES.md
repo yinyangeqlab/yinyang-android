@@ -1,6 +1,6 @@
 # Android feature guide
 
-**Release builds** · YinYang Companion App for Qudelix 5K 0.9.9 and YinYang App Manager 1.5.4. Hardware editing was tested on the original 5K with firmware 3.2.9 in split USR/SPK mode. Qudelix 5K Plus support is planned.
+**Release builds** · Original 5K Companion 0.9.9, 5K Plus Companion 0.5.0-preview, and App Manager 1.5.5. Each has a separate entry in App Manager. The feature table below covers the original 5K. Hardware editing was tested on the original 5K with firmware 3.2.9 in split USR/SPK mode.
 
 ## What you can do today
 

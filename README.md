@@ -5,7 +5,8 @@ YinYang EQ Lab privately develops the Companion and maintains this repository fo
 | App | Purpose |
 | --- | --- |
 | YinYang App Manager | Checks for Lab app updates, sends optional update alerts, and saves verified APKs to the phone's Download folder. Requires Android 9 or later. |
-| YinYang Companion App for Qudelix 5K | Controls the original Qudelix 5K, manages PEQ and channel matching, runs blind listening comparisons, and configures the 5K’s USB playback and microphone settings. Qudelix 5K Plus support is coming soon. |
+| YinYang Companion App for Qudelix 5K | Controls the original Qudelix 5K, manages PEQ and channel matching, runs blind listening comparisons, and configures the 5K’s USB playback and microphone settings. |
+| YinYang 5K Plus Companion (preview) | Separate app for the Qudelix 5K Plus, with its own settings for shared PEQ, channel matching and device presets. |
 
 See the full list of available controls, YinYang additions, and the mixing and measurement research. [Android feature guide](FEATURES.md)
 
@@ -15,7 +16,7 @@ Explore the Companion’s ten screens, switch between four themes, and share the
 
 Download the signed Manager or install the Companion directly from the Android page. [Android downloads](https://yinyangeq.com/q5k4android#install)
 
-App Manager appears as **YinYangEQ** on Android. App Manager and Companion stay visible in its list and show **Up to date** when current. App Manager 1.5.4 labels build numbers alongside versions, such as **0.9.9 · Build #29**. Use **Enable/Disable Notifications for Update Alerts** and **Choose Which Apps Receive Update Notifications** to manage alerts. Turning alerts off keeps your app selections.
+App Manager appears as **YinYangEQ** on Android. In App Manager 1.5.5, the original 5K Companion, 5K Plus Companion and App Manager each have their own entry and show **Up to date** when current. Use **Enable/Disable Notifications for Update Alerts** and **Choose Which Apps Receive Update Notifications** to manage alerts. Turning alerts off keeps your app selections. When multiple updates are available, the alert names each app.
 
 Tap **Update** for one installed app or **Update all** to download all available updates for installed apps. Use **Download APK** for a first install. The Manager verifies each package, checksum and Lab signing certificate. Tap **Install…**, select the APK in Android Files, and confirm in Android's installer. The note below the app list explains the Files handoff and why Play Protect may still ask to scan the APK. Keep Play Protect enabled. On Android 9, choose a save location when the picker opens. [Release catalog](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/catalog.json)
 
