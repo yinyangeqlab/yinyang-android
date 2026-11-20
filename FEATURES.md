@@ -1,6 +1,6 @@
 # Android feature guide
 
-**Release builds** · YinYang Companion App for Qudelix 5K 0.9.9 and YinYang App Manager 1.4.4. Hardware editing was tested on the original 5K with firmware 3.2.9 in split USR/SPK mode. Qudelix 5K Plus support is planned.
+**Release builds** · YinYang Companion App for Qudelix 5K 0.9.9 and YinYang App Manager 1.5.2. Hardware editing was tested on the original 5K with firmware 3.2.9 in split USR/SPK mode. Qudelix 5K Plus support is planned.
 
 ## What you can do today
 
@@ -16,7 +16,7 @@
 | YinYang Lab | The 5K supplies audio output and EQ | Open My Collection and Personal Tuning inside the app. Headphone search is part of Tuning. Web pages require a connection and offer a retry if unreachable. |
 | Android interface | The 5K runs the active EQ independently of its controller | Choose Blue, YinYang Green, AMOLED or Light. Use Presets, EQ, Audio and Lab as the main destinations. |
 | Diagnostics | Reports its active configuration over the control link | Export app debug logs and active EQ snapshots. Run offline simulations or a reversible 1 dB test on a disposable preset, including restoration of the original selection after reconnect. |
-| Installation and updates | Firmware is managed separately | App Manager checks for Lab app updates and can notify you when they are available. Tap to download and verify a full APK. Open it from the phone's Download folder and confirm in Android's installer. The public catalog includes the Manager and Companion. |
+| Installation and updates | Firmware is managed separately | App Manager checks automatically and offers alerts for the apps you choose. Download and verify one update or all available updates for installed apps. Open each APK from Android Files and confirm in Android's installer. |
 
 Qudelix documents its hardware EQ, independent channels and custom saves. The YinYang columns describe what this release implements. [Qudelix EQ documentation](https://www.qudelix.com/blogs/5k-dac-amp/equalizer)
 
