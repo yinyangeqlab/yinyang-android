@@ -4,18 +4,19 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 
 | Download | Android version | Release |
 | --- | --- | --- |
-| [YinYangEQ Q5K Companion App](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Companion.apk) | 8 or later | v0.16.2 · Build 63 |
-| [YinYang App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) | 9 or later | v1.6.2 · Build 24 |
+| [YingYangEQ App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) | 9 or later | v1.6.3 · Build 25 |
 
 [Android page and theme gallery](https://yinyangeq.com/q5k4android#install) · [Feature guide](FEATURES.md)
 
 ## Install or update
 
-In App Manager, choose **YinYangEQ Qudelix 5k and 5K Plus Companion App**. Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. Manager also checks for its own updates. Both apps show their version and build at the top right.
+In App Manager, choose **YYEQ5K** (v0.16.3 · Build 64). Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. Manager also checks for its own updates. Both apps show their version and build at the top right.
 
 The unified app uses the original release Companion package. If you have phone-only presets in an earlier app, export them before switching. The separate Plus preview uses a different package. Install the unified app alongside it, link your DAC and import any exported presets you want to keep.
 
-The Lab maintains the Android source in its development workspace. This repository holds distribution records and signed downloads.
+## Source and build
+
+This tag includes the native [YYEQ5K source](android/) and [App Manager source](apk-manager/). It also includes the small set of pinned website inputs used by the offline EQ engine. See the [build instructions](build-support/README.md) for the toolchain, exact prepared engine inputs, and local build commands.
 
 ## Use at your own risk
 

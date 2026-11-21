@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.yinyangeq.qudelixprobe">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <queries>
+        <intent><action android:name="android.settings.APPLICATION_DEVELOPMENT_SETTINGS"/></intent>
+    <intent><action android:name="android.settings.BLUETOOTH_PAIRING_SETTINGS"/></intent>
+    <intent><action android:name="com.samsung.settings.DEVICE_PROFILES_SETTINGS"/></intent>
+    <intent><action android:name="android.settings.BLUETOOTH_DEVICE_DETAIL_SETTINGS"/></intent>
+        <package android:name="com.qudelix.qudelix" />
+        <intent><action android:name="android.settings.BLUETOOTH_SETTINGS"/></intent>
+    </queries>
+    <application android:label="YYEQ5K" android:icon="@mipmap/launcher" android:allowBackup="false"
+        android:usesCleartextTraffic="false" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        <activity android:name=".TuningActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".LabActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".DeviceWorkbench" android:exported="false"/>
+        <activity android:name=".ProbeActivity" android:exported="false"/>
+        <activity android:name=".PlusLab" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false"/>
+        <activity android:name=".PlusActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
+        <activity android:name=".DevicePicker" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

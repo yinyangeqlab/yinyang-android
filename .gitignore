@@ -4,3 +4,10 @@
 *.key
 *.pass
 *.idsig
+
+/node_modules/
+/android/build/
+/apk-manager/build/
+/apk-manager/state/
+/work/*/dist/
+__pycache__/

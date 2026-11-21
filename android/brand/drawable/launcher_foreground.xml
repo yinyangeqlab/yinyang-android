@@ -1,0 +1,39 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+  <group android:translateX="21.68" android:translateY="16.5" android:scaleX="2.02" android:scaleY="2.02">
+    <group android:translateX="9.1" android:translateY="3.4" android:scaleX="0.2875" android:scaleY="0.2875">
+      <path android:pathData="M0 24a24 24 0 1 0 48 0a24 24 0 1 0 -48 0Z">
+        <aapt:attr name="android:fillColor">
+          <gradient android:type="radial" android:centerX="21" android:centerY="16" android:gradientRadius="34">
+            <item android:offset="0" android:color="#79a6ec" />
+            <item android:offset="0.58" android:color="#3f6ac0" />
+            <item android:offset="1" android:color="#193971" />
+          </gradient>
+        </aapt:attr>
+      </path>
+      <path android:pathData="M0 24A12 12 0 0 1 24 24A12 12 0 0 0 48 24A24 24 0 0 1 0 24Z">
+        <aapt:attr name="android:fillColor">
+          <gradient android:type="radial" android:centerX="21" android:centerY="16" android:gradientRadius="34">
+            <item android:offset="0" android:color="#f56d78" />
+            <item android:offset="0.58" android:color="#db4b5c" />
+            <item android:offset="1" android:color="#8e2341" />
+          </gradient>
+        </aapt:attr>
+      </path>
+      <path android:pathData="M8.35 24a3.65 3.65 0 1 0 7.3 0a3.65 3.65 0 1 0 -7.3 0Z" android:fillColor="#245ab4" />
+      <path android:pathData="M32.35 24a3.65 3.65 0 1 0 7.3 0a3.65 3.65 0 1 0 -7.3 0Z" android:fillColor="#f0586c" />
+    </group>
+    <group android:translateX="0.2" android:translateY="7.15" android:scaleX="0.246" android:scaleY="0.246">
+      <path android:pathData="M3 56c4-5 6-3 8-11l2-6 2 4c4-2 3-12 6-11l2-10 3 16 4-4c4 2 3 10 7 9l3 3c6-1 9 8 15 8l7 5l-9 12H3Z" android:fillColor="#50242C" />
+      <path android:pathData="M66 59c6-1 9-7 13-7l5-5 3 1c4-1 4-9 8-10l4 4 4-12 3 5 3-11 3 15 4-3c4 6 4 14 9 17v18H75Z" android:fillColor="#153944" />
+      <path android:pathData="m23 22-3 26 8-5 7 20 6-5-11-24-4 4Zm-10 17-3 20 9 7-4-23Z" android:fillColor="#904b47" />
+      <path android:pathData="m109 24-7 31-8 12 16-12 2-16Zm-6 6-4 12-4-4-8 24 12-9Z" android:fillColor="#32606c" />
+      <path android:pathData="M3 56c4-5 6-3 8-11l2-6 2 4c4-2 3-12 6-11l2-10 3 16 4-4c4 2 3 10 7 9l3 3c6-1 9 8 15 8l7 5" android:strokeColor="#f4795a" android:strokeWidth="4.25" android:strokeLineJoin="round" android:strokeLineCap="round" />
+      <path android:pathData="M66 59c6-1 9-7 13-7l5-5 3 1c4-1 4-9 8-10l4 4 4-12 3 5 3-11 3 15 4-3c4 6 4 14 9 17" android:strokeColor="#87ccd4" android:strokeWidth="4.25" android:strokeLineJoin="round" android:strokeLineCap="round" />
+      <path android:pathData="M3 62c5-6 9-4 12-11s7-1 10-4 6 7 10 6 7 8 13 7l10 4" android:strokeColor="#ee694d" android:strokeWidth="2.9" android:strokeLineJoin="round" android:strokeLineCap="round" />
+      <path android:pathData="M72 64c7-4 10-2 15-8s7-5 10-3 9-11 13-8 7 10 15 12" android:strokeColor="#58adbd" android:strokeWidth="2.9" android:strokeLineJoin="round" android:strokeLineCap="round" />
+      <path android:pathData="M35 70c8-3 14 2 26 0s20 1 32-1" android:strokeColor="#95bbc1" android:strokeWidth="2.9" android:strokeLineJoin="round" android:strokeLineCap="round" />
+    </group>
+  </group>
+  <!-- YYEQ5K wordmark within the adaptive icon safe area. -->
+  <path android:pathData="M29 68l3 4.4L35 68m-3 4.4V76 M38 68l3 4.4L44 68m-3 4.4V76 M53 68h-6v8h6m-6-4h5 M59 68c-2 0-3 1.7-3 4s1 4 3 4 3-1.7 3-4-1-4-3-4zm1 6 2.3 3 M71 68h-5l-.8 3.5h2.5c1.8 0 2.8.8 2.8 2.2s-1.1 2.3-2.8 2.3h-2.5 M74 68v8m0-3.4 5.8-4.6m-3.5 3 3.8 5" android:strokeColor="#F0F5F8" android:strokeWidth="1.7" android:strokeLineJoin="round" android:strokeLineCap="round"/>
+</vector>
