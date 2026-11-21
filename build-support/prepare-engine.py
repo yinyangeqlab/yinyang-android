@@ -2,7 +2,7 @@ from hashlib import sha256
 import io
 import json
 from pathlib import Path
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
 root = Path(__file__).resolve().parents[1]
@@ -17,7 +17,8 @@ for relative, expected in manifest.items():
     if output.is_file():
         data = output.read_bytes()
     elif name in {'autoeq-wasm.mjs','autoeq-wasm.wasm'}:
-        with urlopen('https://yinyangeq.com/vendor/peqdb-autoeq/'+name, timeout=30) as response:
+        request = Request('https://yinyangeq.com/vendor/peqdb-autoeq/'+name, headers={'User-Agent':'YinYangEQ-Lab-Build/1.0'})
+        with urlopen(request, timeout=30) as response:
             data = response.read(15_000_001)
     else:
         data = apk.read('assets/'+name)
