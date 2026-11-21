@@ -6,7 +6,7 @@ Link one Qudelix 5K or 5K Plus. The companion checks the model before opening de
 
 ## Edit and fit EQ
 
-**Main EQ · USR** controls the common response. **Channel Match · SPK** has independent left and right gains. In Both view, the same filter type, frequency and Q share a single row with an editable gain for each ear. Use Left CM or Right CM to change one side’s filter shape. Reload restores the editor’s saved starting point.
+**Main EQ · USR** controls the common response. **Channel Match · SPK** has independent left and right gains. In Both view, the same filter type, frequency and Q share a single row with an editable gain for each ear. Use Left CM or Right CM to change one side’s filter shape. Clear filters removes the bands on the open EQ page. In Channel Match it clears both ears. Reload restores that page’s starting EQ, including an unsaved draft.
 
 The original 5K offers ten independent match filters per ear. The Plus offers up to twenty per ear with up to ten Main EQ filters. With twenty Main filters there is room for ten independent filters per ear. All thirty can serve Main EQ with no channel correction. Twenty left and twenty right amount to twenty mirrored correction pairs.
 
@@ -14,7 +14,7 @@ In **Auto EQ**, choose your IEM or headphone measurement, attach or select a tar
 
 ## Audio and presets
 
-Adjust hardware and Android media volumes separately. Check the available stream and battery information, input RMS, and gain and DAC modes for your linked model. SPL is an estimate based on headphone specifications. Import or export filters, load a stored device preset, and save Main EQ and Channel Match separately or as a named pair.
+Adjust hardware and Android media volumes separately. Check the available stream and battery information, input RMS, and gain and DAC modes for your linked model. On the 5K Plus, Audio shows the active Bluetooth format above Android output settings. On Android 13 and later, switching inputs can pause or resume this phone’s media when the companion can identify its audio stream. SPL is an estimate based on headphone specifications. Import or export filters, load a stored device preset, and save Main EQ and Channel Match separately or as a named pair.
 
 ## My Collection and updates
 
@@ -22,4 +22,4 @@ Use Sync to approve a browser link with a matching code. An approved writable li
 
 App Manager lists the unified Companion and its own updates. Firmware updates run in the official Qudelix app.
 
-[Companion downloads, model photos and five-theme gallery](https://yinyangeq.com/q5k4android?release=0.16.1)
+[Companion downloads, model photos and five-theme gallery](https://yinyangeq.com/q5k4android#install)
