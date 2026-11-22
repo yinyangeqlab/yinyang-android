@@ -185,7 +185,7 @@ function fitForm(){
    el('small',comparison.version===2?comparison.name+' · '+new Date(comparison.time).toLocaleDateString():'Previously saved choices',last);
    if(restoreOpened){
      if(comparison.version===2)renderComparison(comparison,main);
-     else for(const c of comparison)btn(c.name,()=>use(c.name,c.shared,c.channels),last);
+     else for(const c of comparison)draftButton(c.name,()=>use(c.name,c.shared,c.channels),last);
      return;
    }
  }
@@ -262,7 +262,7 @@ function fitForm(){
  if(!t?.points?.length)return;
  const run=el('section');run.className='fit-run';chart(run,[{name:'Measurement',points:confirmed.points},{name:'Target',points:t.points}]);
  const mainButton=btn('Generate Main PEQ',()=>startFit(confirmed,t,null,run,mainButton),run);mainButton.className='fit-primary';
- el('small','Preview fits before loading one into Filters.',run);
+ el('small',standalone?'Compare results and copy the filters you want to use.':'Preview fits before loading one into Filters.',run);
  const matches=[...(someMatch(confirmed)?[['auto','Selected measurement',confirmed]]:[]),
    ...library.eqs.filter(e=>someMatch(e.channelMatch)).map(e=>['eq:'+e.id,e.name,e.channelMatch]),
    ...library.measurements.filter(someMatch).map(m=>['m:'+m.id,m.name,m])];
@@ -291,9 +291,9 @@ function startFit(m,t,match,run,button){
      if(data.progress){message.textContent='Generating · '+data.progress;return;}
      if(data.error){failed(data.error);return;}
      if(data.result){
-       result=data.result;message.textContent='Checking device capacity…';
+       result=data.result;message.textContent=standalone?'Ranking fits…':'Checking device capacity…';
        result.ranked.forEach((c,i)=>{const u=result.user[c.ui],channels=result.matches[c.mi].channels;
-         if(Phone.fits(peq(u),channels.map((ear,k)=>'Channel: '+(k?'R':'L')+'\n'+peq(ear)).join('\n')))allowed.push(i);
+         if(standalone || Phone.fits(peq(u),channelPeq(channels)))allowed.push(i);
        });job.postMessage({allowed});return;
      }
      if(!data.choices || !result)return;
@@ -303,7 +303,7 @@ function startFit(m,t,match,run,button){
      if(saved===false)status('The comparison is open. This phone could not save it locally.');
      window.scrollTo(0,0);
    };
-   job.postMessage({raw:m.points,target:t.points,match,plus:model,type:m.type});
+   job.postMessage({raw:m.points,target:t.points,match,plus:model||standalone,type:m.type});
  }catch(err){failed('Could not start the fitter. Try again.');}
 }
 function renderComparison(saved,parent){
@@ -342,15 +342,18 @@ function renderComparison(saved,parent){
    chart(box,[{name:'Predicted Main EQ',points:corrected},{name:'Target',points:saved.targetPoints}]);
    if(opt.labels.length)el('small',opt.labels.join(' · '),box);
    if(opt.fallback)el('small',opt.fallback,box);
+   btn('Copy Main PEQ',()=>Phone.copyPeq(peq({preamp:c?result.user[c.ui].preamp:opt.preamp,filters:activeFilters})),box);
    if(c){
      const u=result.user[c.ui],match=result.matches[c.mi],title=saved.name+' · '+opt.label;
      el('p',match.label+' · '+[u.filters.length,...match.channels.map(ear=>ear.filters.length)].join(' / ')+' filters (Main / Left / Right)',box);
-     btn('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels),box).className='fit-primary';
-     if(!saved.mainOnly && match.channels.some(ear=>ear.filters.length || ear.preamp))
-       btn('Review Channel Match only',()=>use(title,null,match.channels),box);
+     draftButton('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels),box).className='fit-primary';
+     if(!saved.mainOnly && match.channels.some(ear=>ear.filters.length || ear.preamp)){
+       btn('Copy Channel Match',()=>Phone.copyPeq(channelPeq(match.channels)),box);
+       draftButton('Review Channel Match only',()=>use(title,null,match.channels),box);
+     }
      if(linked && library.writable)btn('Save fit to My Collection',()=>saveEntry({action:'eq',name:title.slice(0,100),filters:u.filters,preamp:u.preamp,
        ...(match.label==='No channel correction'?{}:{match:{channelMatchMode:'custom',channelMatchPreset:{channels:match.channels.map(c=>({filters:c.filters,preampDb:c.preamp}))}}})}),box);
-   }else el('p','This result exceeds the device’s filter or preamp limits.',box);
+   }else if(!standalone)el('p','This result exceeds the device’s filter or preamp limits.',box);
    const filters=el('details',null,box);el('summary','Calculated Main EQ filters',filters);const table=el('table',null,filters);table.className='filter-values';
    const headings=el('tr',null,el('thead',null,table));
    for(const title of ['Band','Type','Hz','dB','Q'])el('th',title,headings);
@@ -370,9 +373,10 @@ function renderComparison(saved,parent){
      const track=el('span',null,name);track.className='rms-track';track.setAttribute('aria-hidden','true');
      const fill=el('i',null,track);fill.style.width=(100*item.score/maxError)+'%';
    }
-   const score=el('span',null,b);el('strong',fixed(item.score,3)+' dB',score);el('small',item.winner?'Stereo RMS':'Device limit · website RMS',score);
+   const score=el('span',null,b);el('strong',fixed(item.score,3)+' dB',score);
+   el('small',item.winner?'Stereo RMS':standalone?'Main EQ RMS':'Device limit · website RMS',score);
  }
- if(levels.some(item=>!item.winner))el('small','Results marked Device limit show the calculated website error. They can be inspected here; loading requires a compatible band budget.',budget);
+ if(!standalone && levels.some(item=>!item.winner))el('small','Results marked Device limit show the calculated website error. They can be inspected here; loading requires a compatible band budget.',budget);
  const rec=pane(parent,'Recommendations');
  parent.insertBefore(rec,budget);
  const pick=(index,label)=>{if(index<0)return;const c=result.ranked[index],d=el('details',null,rec);d.className='fit-pick';
@@ -380,7 +384,7 @@ function renderComparison(saved,parent){
   d.ontoggle=()=>{if(d.open && d.children.length===1)showCandidate(d,result.user[c.ui].index,index);};
  };
  if(best>=0){pick(best,best===close?'Best fit and lower boost':'Best fit');if(close!==best)pick(close,'Lower boost, close fit');}
- else el('p','No complete fit can be loaded on this model.',rec);
+ else el('p',standalone?'Review and copy the calculated Main EQ options below.':'No complete fit can be loaded on this model.',rec);
  const all=el('details',null,parent);all.className='all-options';el('summary','All generated options ('+options.length+')',all);
  const picker=choice(all,'Fitter and band limit',options.map((o,i)=>[String(i),o.label+(o.labels.includes('Lower boost')?' · Lower boost':'')]),'0',()=>inspect());
  const variants=el('div',null,all);

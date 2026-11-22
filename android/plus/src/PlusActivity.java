@@ -90,6 +90,7 @@ public final class PlusActivity extends AppearanceActivity {
     private boolean requestCatalogue;
     private boolean loadingLinkedEq;
     private String initialEqMessage="Connect your linked 5K Plus to read its active EQ.";
+    private AlertDialog applyDraftPrompt;
 
 
     @Override public void onCreate(Bundle state) {
@@ -114,6 +115,7 @@ public final class PlusActivity extends AppearanceActivity {
         else if(swapPending())page=3;
         connection = new PlusConnection(this, new PlusConnection.Listener() {
             public void changed() {
+                if(applyDraftPrompt!=null)applyDraftPrompt.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(writable());
                 log.record(connection.status==null ? "Device discovery or disconnection" : "5K Plus connected · firmware "+connection.status.firmware);
                 if (connection.status == null) {
                     inputPending=false;
@@ -1086,8 +1088,10 @@ public final class PlusActivity extends AppearanceActivity {
                 String id=data.getStringExtra("tuningId");
                 if(id!=null && !id.isEmpty())getSharedPreferences("peq-workbench",MODE_PRIVATE).edit().putString("receivedTuningId",id).apply();
                 syncText("Library draft loaded."); render(false);
-                new AlertDialog.Builder(this).setTitle("Apply this draft to the Plus?").setMessage(name)
-                    .setPositiveButton("Use EQ",(d,w)->saveDraft()).setNegativeButton("Keep on phone",null).show();
+                applyDraftPrompt=new AlertDialog.Builder(this).setTitle("Apply this draft to the Plus?").setMessage(name)
+                    .setPositiveButton("Use EQ",(d,w)->{if(writable())saveDraft();})
+                    .setNegativeButton("Keep on phone",null).setOnDismissListener(d->applyDraftPrompt=null).show();
+                applyDraftPrompt.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(writable());
             } catch(IllegalArgumentException e) {showError(e.getMessage());}
             return;
         }

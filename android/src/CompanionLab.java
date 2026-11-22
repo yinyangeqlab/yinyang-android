@@ -264,12 +264,12 @@ abstract class CompanionLab extends AppearanceActivity {
             @Override
             public boolean onJsPrompt(WebView w, String url, String msg, String data, JsPromptResult result) {
                 if ("yinyang-peq-device".equals(msg)) {
-                    if (tuningPage(url) && tuningPage(w.getUrl())) companionIdentity(result);
+                    if (!standalone() && tuningPage(url) && tuningPage(w.getUrl())) companionIdentity(result);
                     else result.cancel();
                     return true;
                 }
                 if ("yinyang-import-peq".equals(msg)) {
-                    if (tuningPage(url) && tuningPage(w.getUrl())) offerTuningDraft(data, result);
+                    if (!standalone() && tuningPage(url) && tuningPage(w.getUrl())) offerTuningDraft(data, result);
                     else result.cancel();
                     return true;
                 }

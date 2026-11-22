@@ -51,7 +51,8 @@ abstract class CompanionLibrary extends AppearanceActivity {
         super.onCreate(state);grant=new LibraryGrant(this);
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v,i)->{AppearanceActivity.applyInsets(v,i);return i;});
-        LabStyle.modelHeader(this,root,plus(),this::chooseTheme,()->navigate(DIAGNOSTICS));
+        if(standalone())LabStyle.standaloneHeader(this,root);
+        else LabStyle.modelHeader(this,root,plus(),this::chooseTheme,()->navigate(DIAGNOSTICS));
         FrameLayout content=new FrameLayout(this);root.addView(content,new LinearLayout.LayoutParams(-1,0,1));
         page=new WebView(this);page.setAlpha(0f);page.setBackgroundColor(BG);content.addView(page,-1,-1);
         ProgressBar loading=new ProgressBar(this);loading.setContentDescription("Loading");
@@ -103,7 +104,7 @@ abstract class CompanionLibrary extends AppearanceActivity {
             }
         });
         String bootstrap="<script>init("+plus()+","+grant.linked()+","+color(BG)+","+color(INK)+","+color(PANEL)+","+color(LINE)+",'"+
-                (theme(this)==2?"light":"dark")+"',"+firstTab+","+color(BLUE)+","+color(MUTED)+","+color(ACTIVE)+");</script>";
+                (theme(this)==2?"light":"dark")+"',"+firstTab+","+color(BLUE)+","+color(MUTED)+","+color(ACTIVE)+","+standalone()+");</script>";
         io.execute(()->{
             try(InputStream f=getAssets().open("library.html")){
                 String html=read(f,2*1024*1024)+bootstrap;
@@ -118,11 +119,16 @@ abstract class CompanionLibrary extends AppearanceActivity {
     private void drawNavigation(){
         if(eqMenu!=null)((LinearLayout)eqMenu.getParent()).removeView(eqMenu);
         eqMenu=null;
-        if(autoEq){LinearLayout root=(LinearLayout)navigation.getParent();eqMenu=LabStyle.eqMenu(this,root,TUNING,d->{if(d!=TUNING)navigate(d);});root.removeView(eqMenu);root.addView(eqMenu,root.indexOfChild((android.view.View)page.getParent()));}
+        if(autoEq){
+            LinearLayout root=(LinearLayout)navigation.getParent();
+            eqMenu=LabStyle.eqMenu(this,root,TUNING,standalone(),this::navigate);
+            root.removeView(eqMenu);
+            root.addView(eqMenu,root.indexOfChild((android.view.View)page.getParent()));
+        }
         navigation.removeAllViews();
-        LabStyle.nav(this,navigation,autoEq ? TUNING : LAB,d->{
-            if(d!=TUNING && d!=LAB){navigate(d);return;}
-            boolean next=d==TUNING;
+        LabStyle.nav(this,navigation,autoEq ? TUNING : LAB,standalone(),d->{
+            if(d!=TUNING && d!=LAB && !(standalone() && d==EQ)){navigate(d);return;}
+            boolean next=d!=LAB;
             if(next==autoEq)return;
             returnToLibrary=false;
             autoEq=next;
@@ -325,6 +331,15 @@ abstract class CompanionLibrary extends AppearanceActivity {
             if(shared==null || match==null || shared.length()+match.length()>32768)return false;
             try{return validFit(shared,match);}catch(IllegalArgumentException e){return false;}
         }
+        @JavascriptInterface public void copyPeq(String preset){
+            if(preset==null || preset.isEmpty() || preset.length()>32768)return;
+            runOnUiThread(()->{
+                if(isFinishing() || isDestroyed())return;
+                android.content.ClipboardManager clipboard=getSystemService(android.content.ClipboardManager.class);
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PEQ filters",preset));
+                if(android.os.Build.VERSION.SDK_INT<33)toast("PEQ filters copied.");
+            });
+        }
         @JavascriptInterface public void link(){runOnUiThread(()->{if(busy || grant.linked())return;try{grant.create();showCode();}catch(Exception e){message("Android secure credential storage is unavailable.");}});}
         @JavascriptInterface public void cancelRequest(){runOnUiThread(()->{
             if(busy || grant.linked())return;grant.clear();js("requestEnded('cancel')");
@@ -343,7 +358,7 @@ abstract class CompanionLibrary extends AppearanceActivity {
         @JavascriptInterface public void refresh(){runOnUiThread(()->fetch(false));}
         @JavascriptInterface public void disconnect(){runOnUiThread(()->new AlertDialog.Builder(CompanionLibrary.this)
             .setTitle("Disconnect account sync?").setPositiveButton("Disconnect",(d,w)->fetch(true)).setNegativeButton("Cancel",null).show());}
-        @JavascriptInterface public void draft(String payload){if(payload==null || payload.length()>32768)return;runOnUiThread(()->{
+        @JavascriptInterface public void draft(String payload){if(standalone() || payload==null || payload.length()>32768)return;runOnUiThread(()->{
             try{JSONObject v=new JSONObject(payload);String title=v.getString("name"),shared=v.getString("shared"),match=v.getString("match");
                 if(title.length()>256 || shared.isEmpty() && match.isEmpty())throw new IllegalArgumentException();
                 new AlertDialog.Builder(CompanionLibrary.this).setTitle("Load into DSP editor?").setMessage(title)

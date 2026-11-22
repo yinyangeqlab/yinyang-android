@@ -165,10 +165,13 @@ final class LabStyle {
         header(a, parent, showDebug == null ? null : () -> ((AppearanceActivity)a).chooseTheme(), showDebug);
     }
     static void header(Activity a, LinearLayout parent, Runnable themeAction, Runnable showDebug) {
-        header(a,parent,themeAction,showDebug,a.getApplicationInfo().loadLabel(a.getPackageManager()).toString());
+        header(a,parent,themeAction,showDebug,a.getApplicationInfo().loadLabel(a.getPackageManager()).toString(),false);
     }
     static void modelHeader(Activity a,LinearLayout parent,boolean plus,Runnable theme,Runnable debug){
-        header(a,parent,theme,debug,plus?"Yin Yang EQ · 5K Plus":"Yin Yang EQ · 5K");
+        header(a,parent,theme,debug,plus?"Yin Yang EQ · 5K Plus":"Yin Yang EQ · 5K",false);
+    }
+    static void standaloneHeader(AppearanceActivity a,LinearLayout parent){
+        header(a,parent,a::chooseTheme,null,"Yin Yang EQ",true);
     }
     private static String buildLabel;
     static void addBuildLabel(Activity a,LinearLayout parent,int endPadding){
@@ -184,7 +187,7 @@ final class LabStyle {
         version.setPaddingRelative(0,dp(a,4),dp(a,endPadding),0);
         parent.addView(version,-1,-2);
     }
-    private static void header(Activity a,LinearLayout parent,Runnable themeAction,Runnable showDebug,String title){
+    private static void header(Activity a,LinearLayout parent,Runnable themeAction,Runnable showDebug,String title,boolean standalone){
         addBuildLabel(a,parent,12);
         LinearLayout h = new LinearLayout(a);
         h.setGravity(Gravity.CENTER_VERTICAL);
@@ -206,18 +209,23 @@ final class LabStyle {
             appearance.setOnClickListener(v -> themeAction.run());
             h.addView(appearance,-2,dp(a,48));
         }
-        if (showDebug != null) {
+        if (showDebug != null || standalone) {
             Icon bug = new Icon(a,DIAGNOSTICS,BLUE);
             bug.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
             bug.setContentDescription("Debug");
-            bug.setFocusable(true);
+            bug.setEnabled(!standalone);
+            bug.setFocusable(!standalone);
             bug.setBackground(surface(a,BG,0,8));
-            bug.setOnClickListener(v -> showDebug.run());
+            if(standalone)bug.setAlpha(.55f);
+            else bug.setOnClickListener(v -> showDebug.run());
             if(android.os.Build.VERSION.SDK_INT>=26)bug.setTooltipText("Debug");
             h.addView(bug,dp(a,48),dp(a,48));
         }
     }
     static LinearLayout eqMenu(Activity a,LinearLayout parent,int selected,IntConsumer choose){
+        return eqMenu(a,parent,selected,false,choose);
+    }
+    static LinearLayout eqMenu(Activity a,LinearLayout parent,int selected,boolean standalone,IntConsumer choose){
         LinearLayout row=new LinearLayout(a);parent.addView(row);
         int[] dests={EQ,TUNING,BLIND};String[] labels={"Filters","Auto EQ","Blind A/B"};
         for(int i=0;i<dests.length;i++){
@@ -226,6 +234,7 @@ final class LabStyle {
                 if(!Integer.valueOf(dest).equals(row.getTag()))choose.accept(dest);
             });
             b.setTag(dest);
+            b.setEnabled(!standalone || dest==TUNING);
             row.addView(b,new LinearLayout.LayoutParams(0,-2,1));
         }
         selectEqMenu(row,selected);
@@ -243,10 +252,17 @@ final class LabStyle {
         }
     }
     static LinearLayout nav(Activity a, LinearLayout root, int active, IntConsumer select) {
+        return nav(a,root,active,false,select);
+    }
+    static LinearLayout nav(Activity a, LinearLayout root, int active, boolean standalone, IntConsumer select) {
         return nav(a, root, active==PRESETS || active==TUNING ? EQ : active, new String[]{"Device","Audio","EQ","Tuning","Sync"},
-                new int[]{HEADPHONES,AUDIO,EQ,WEBSITE,LAB}, select);
+                new int[]{HEADPHONES,AUDIO,EQ,WEBSITE,LAB}, standalone,select);
     }
     static LinearLayout nav(Activity a, LinearLayout root, int active, String[] names, int[] destinations, IntConsumer select) {
+        return nav(a,root,active,names,destinations,false,select);
+    }
+    private static LinearLayout nav(Activity a, LinearLayout root, int active, String[] names, int[] destinations,
+                                    boolean standalone, IntConsumer select) {
         View edge = new View(a);
         edge.setBackgroundColor(LINE);
         root.addView(edge, -1, dp(a, 1));
@@ -263,8 +279,11 @@ final class LabStyle {
             item.setBackground(surface(a, on ? ACTIVE : BG, 0, 12));
             item.setSelected(on);
             item.setContentDescription(names[i]);
-            item.setFocusable(true);
-            item.setOnClickListener(v -> {if(!on)select.accept(dest);});
+            boolean enabled=!standalone || dest!=AUDIO;
+            item.setEnabled(enabled);
+            item.setFocusable(enabled);
+            if(enabled)item.setOnClickListener(v -> {if(!on)select.accept(dest);});
+            else item.setAlpha(.55f);
             item.setForeground(new RippleDrawable(ColorStateList.valueOf((BLUE & 0xffffff)|0x30000000),null,box(a,0xffffffff,0,12)));
             item.addView(new Icon(a, dest, on ? BLUE : MUTED), dp(a, 28), dp(a, 26));
             TextView label = text(a, names[i], 12, on ? BLUE : MUTED, on);

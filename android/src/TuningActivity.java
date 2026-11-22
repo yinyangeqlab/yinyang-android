@@ -18,7 +18,8 @@ public final class TuningActivity extends CompanionLab {
         return device == null ? getIntent().getBooleanExtra("plus", false) : device.profile.model == DeviceProfile.Model.PLUS;
     }
     @Override void siteHeader(LinearLayout root) {
-        modelHeader(this,root,plus(),this::chooseTheme,()->leave(DIAGNOSTICS));
+        if(standalone())standaloneHeader(this,root);
+        else modelHeader(this,root,plus(),this::chooseTheme,()->leave(DIAGNOSTICS));
     }
     @Override void labNavigation(LinearLayout root) {
         hint = LabStyle.text(this,
@@ -27,7 +28,7 @@ public final class TuningActivity extends CompanionLab {
         hint.setPadding(LabStyle.dp(this,14),LabStyle.dp(this,6),LabStyle.dp(this,14),LabStyle.dp(this,6));
         root.addView(hint);
         collectionHint(false);
-        nav(this,root,syncBrowser() ? LAB : WEBSITE,this::leave);
+        nav(this,root,syncBrowser() ? LAB : WEBSITE,standalone(),this::leave);
     }
     @Override void collectionHint(boolean visible) {
         if (hint != null) hint.setVisibility(visible ? View.VISIBLE : View.GONE);
@@ -41,6 +42,7 @@ public final class TuningActivity extends CompanionLab {
         closeTab();
     }
     private void leave(int destination) {
+        if(standalone() && destination==EQ)destination=TUNING;
         setResult(RESULT_OK,new Intent().putExtra("nav",destination));
         closeTab();
     }

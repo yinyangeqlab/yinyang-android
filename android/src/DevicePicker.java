@@ -154,7 +154,11 @@ public final class DevicePicker extends AppearanceActivity {
             action("Unlink device",()->new AlertDialog.Builder(this).setTitle("Unlink "+current.profile.title()+"?")
                 .setMessage("Its drafts stay on this phone. Link the same device to open them again.")
                 .setPositiveButton("Unlink",(d,w)->unlink()).setNegativeButton("Cancel",null).show());
-        }else label("Choose one Qudelix to link. Its EQ and Audio controls open after the app verifies its identity.",15,false);
+        }else {
+            label("Link a Qudelix for device controls, or generate EQ on this phone.",15,false);
+            action("Use Auto EQ without a device",()->openTab(new Intent(this,LabActivity.class)
+                    .putExtra(STANDALONE,true).putExtra("autoEq",true),-1));
+        }
         if(!message.isEmpty())label(message,15,false);
         label("USB",18,true);
         int count=0;

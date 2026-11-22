@@ -1,6 +1,6 @@
 # Rebuild the Android release
 
-The signed release contains YYEQ5K 0.16.3 (build 64) and YingYangEQ App Manager 1.6.3 (build 25). Use Android SDK Platform 36, Build Tools 36.0.0, a JDK with `javac --release 8`, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
+The signed release contains YYEQ5K 0.16.4 (build 65) and YingYangEQ App Manager 1.6.3 (build 25). Use Android SDK Platform 36, Build Tools 36.0.0, a JDK with `javac --release 8`, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
 
 From this repository's root, stage the pinned offline EQ engine and install esbuild.
 

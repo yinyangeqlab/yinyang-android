@@ -2,12 +2,14 @@
 const main=document.querySelector('main');
 let syncView='library',libraryType='eq',backupName='',backupKind='';
 let library={eqs:[],measurements:[]}, model=false, job, output, linked=false, linkCode='', active='Sync';
+let standalone=false;
 let localMeasurement,localTarget,localLeft,localRight,localKind='';
 const el=(tag,value,parent=main)=>{const n=document.createElement(tag);if(value!=null)n.textContent=value;parent.append(n);return n;};
 function btn(label,fn,parent=main){const b=el('button',label,parent);b.onclick=fn;return b;}
 function status(msg){document.querySelector('#status').textContent=msg;}
-function init(plus,paired,bg,ink,panel,line,theme,autoEq=false,accent,muted,tint){
+function init(plus,paired,bg,ink,panel,line,theme,autoEq=false,accent,muted,tint,withoutDevice=false){
   active=autoEq?'Auto EQ':'Sync';
+  standalone=withoutDevice;
   model=plus;linked=paired;Object.entries({bg,ink,panel,line,accent,muted,tint}).forEach(([k,v])=>{if(v)document.body.style.setProperty('--'+k,v);});
   document.body.style.colorScheme=theme;draw();
 }
@@ -41,9 +43,13 @@ function peq(bank){
     'Filter '+(i+1)+': '+(fs.length?'ON':'OFF')+' '+(f.type||'PK')+' Fc '+f.hz+' Hz Gain '+f.gain+' dB Q '+f.q);
   return 'Preamp: '+Math.round(bank.preamp*10)/10+' dB\n'+rows.join('\n');
 }
+function channelPeq(channels){return channels.map((c,i)=>'Channel: '+(i?'R':'L')+'\n'+peq(c)).join('\n');}
 function use(title,shared,channels){
-  const match=channels&&channels.map((c,i)=>'Channel: '+(i?'R':'L')+'\n'+peq(c)).join('\n');
+  const match=channels&&channelPeq(channels);
   Phone.draft(JSON.stringify({name:title,shared:shared?peq(shared):'',match:match||''}));
+}
+function draftButton(label,load,parent){
+ const button=btn(label,load,parent);button.disabled=standalone;return button;
 }
 function showTab(autoEq){
  const next=autoEq?'Auto EQ':'Sync';
@@ -54,6 +60,7 @@ function draw(){
 
  const msg=el('p','');msg.id='status';msg.setAttribute('role','status');
  if(active==='Auto EQ'){
+   if(standalone)el('p','Generate and copy filters on this phone. Link a Qudelix in Device to use its controls.').className='standalone-note';
    fitForm();
    if(linked){
      const browse=btn('Browse saved EQs and channel matches',()=>{
@@ -113,8 +120,8 @@ function draw(){
  const ears=m=>m.channelMatchPreset.channels.map(c=>({filters:c.filters,preamp:c.preampDb}));
  if(libraryType==='eq')for(const e of library.eqs){
    const a=el('article');el('strong',e.name,a);el('small',e.filters.length+' filters',a);
-   btn('Load EQ',()=>use(e.name,e,null),a);
-   if(e.channelMatch?.channelMatchPreset)btn('Load EQ and channel match',()=>use(e.name,e,ears(e.channelMatch)),a);
+   draftButton('Load EQ',()=>use(e.name,e,null),a);
+   if(e.channelMatch?.channelMatchPreset)draftButton('Load EQ and channel match',()=>use(e.name,e,ears(e.channelMatch)),a);
  }
  if(libraryType==='measurement')for(const m of library.measurements){
    const a=el('article');el('strong',m.name,a);el('small',[m.device,m.points.length+' frequency points'].filter(Boolean).join(' · '),a);
@@ -122,7 +129,7 @@ function draw(){
  }
  if(libraryType==='match')for(const [name,m] of matches){
    const a=el('article');el('strong',name,a);
-   if(m.channelMatchPreset)btn('Load channel match',()=>use(name,null,ears(m)),a);
+   if(m.channelMatchPreset)draftButton('Load channel match',()=>use(name,null,ears(m)),a);
    if(m.leftPoints?.length && m.rightPoints?.length)el('small','Paired response available for Auto EQ.',a);
  }
 }
@@ -147,9 +154,9 @@ function renderHistory(list){
   const entry=el('article',null,list);el('strong',row.name,entry);
   el('small',(row.versionRank===1?'Current':'Previous')+' · '+row.model+' · '+new Date(row.savedAt).toLocaleString(),entry);
   const restore=(main,match)=>Phone.draft(JSON.stringify({name:row.name,shared:main,match}));
-  if(row.main)btn('Load '+(row.mainName||'Main EQ')+' (USR)',()=>restore(row.main,''),entry);
-  if(row.match)btn('Load '+(row.matchName||'Channel Match')+' (SPK)',()=>restore('',row.match),entry);
-  if(row.main && row.match)btn('Load pair',()=>restore(row.main,row.match),entry);
+  if(row.main)draftButton('Load '+(row.mainName||'Main EQ')+' (USR)',()=>restore(row.main,''),entry);
+  if(row.match)draftButton('Load '+(row.matchName||'Channel Match')+' (SPK)',()=>restore('',row.match),entry);
+  if(row.main && row.match)draftButton('Load pair',()=>restore(row.main,row.match),entry);
  }
  if(historyNext!=null)btn('Load more versions',()=>Phone.history(historyNext),list);
 }
@@ -167,6 +174,6 @@ function backupPanel(){
   btn('Back up preset',()=>{if(!name.value.trim()){name.focus();status('Enter a backup name.');return;}
    saveEntry({...draft,action:'backup',model:model?'5K Plus':'5K',id:crypto.randomUUID(),name:name.value.trim(),kind:kinds[kind.selectedIndex][1]});});
   el('small','Use the same name and preset type to keep a version history. Edits stay on this phone until you save.');
- }else el('p','Open Filters, then Sync, to back up the current editor settings.');
+ }else el('p',standalone?'Link a Qudelix to back up its editor settings.':'Open Filters, then Sync, to back up the current editor settings.');
  el('h2','Preset history');const list=el('div');list.id='phone-history';renderHistory(list);
 }

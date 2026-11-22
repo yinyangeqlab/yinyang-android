@@ -10,7 +10,7 @@ Link one Qudelix 5K or 5K Plus. The companion checks the model before opening de
 
 The original 5K offers ten independent match filters per ear. The Plus offers up to twenty per ear with up to ten Main EQ filters. With twenty Main filters there is room for ten independent filters per ear. All thirty can serve Main EQ with no channel correction. Twenty left and twenty right amount to twenty mirrored correction pairs.
 
-In **Auto EQ**, choose your IEM or headphone measurement, attach or select a target, and generate Main PEQ or optional Channel Match. Fitting local files works offline. Internet access is needed to search the online index. Compare closest fit and lower peak boost among close fits, then send your chosen result to the editor.
+In **Auto EQ**, choose your IEM or headphone measurement, attach or select a target, and generate Main PEQ or optional Channel Match. On the Devices screen, **Use Auto EQ without a device** opens the generator before you link a DAC. Fitting local files works offline. Internet access is needed to search the online index. Compare closest fit and lower peak boost among close fits, then copy the filters or review them in the linked Qudelix editor.
 
 ## Audio and presets
 

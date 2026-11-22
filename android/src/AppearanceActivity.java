@@ -16,6 +16,7 @@ import android.widget.LinearLayout;
 import android.os.Build;
 
 abstract class AppearanceActivity extends Activity {
+    static final String STANDALONE = "standaloneAutoEq";
     private DeviceBinding binding;
     private ButtonLayoutPanel buttonLayout;
     private boolean resolvedBinding;
@@ -23,6 +24,7 @@ abstract class AppearanceActivity extends Activity {
         if(!resolvedBinding){binding=DeviceBinding.forIntent(this,getIntent());resolvedBinding=true;}
         return binding;
     }
+    final boolean standalone(){return getIntent().getBooleanExtra(STANDALONE,false);}
     private String workspace(){
         DeviceBinding b=binding();return b==null?"unlinked":b.profile.key;
     }
@@ -48,6 +50,8 @@ abstract class AppearanceActivity extends Activity {
         android.content.ComponentName target=intent.getComponent();
         if(!(this instanceof DevicePicker) && target!=null && getPackageName().equals(target.getPackageName()) && binding()!=null)
             binding().tag(intent);
+        if(standalone() && target!=null && TuningActivity.class.getName().equals(target.getClassName()))
+            intent.putExtra(STANDALONE,true);
         super.startActivityForResult(intent,code,options);
     }
     @SuppressWarnings("deprecation")
@@ -142,7 +146,7 @@ abstract class AppearanceActivity extends Activity {
     }
     @Override protected void onStart() {
         super.onStart();
-        if(!(this instanceof DevicePicker)){
+        if(!(this instanceof DevicePicker) && !(standalone() && (this instanceof LabActivity || this instanceof TuningActivity))){
             DeviceBinding b=binding();
             boolean plus=this instanceof PlusActivity || this instanceof PlusLab;
             if(b==null || !b.active(this) || (!(this instanceof TuningActivity) && plus!=(b.profile.model==DeviceProfile.Model.PLUS))){
