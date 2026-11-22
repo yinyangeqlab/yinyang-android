@@ -80,6 +80,22 @@ final class PlusBlindPanel implements PlusBlindRound.Journal {
             notice="";host.refreshBlind();
         } catch(IllegalArgumentException | JSONException error){throw new IOException(error.getMessage(),error);}
     }
+    void generatedFits(String payload) throws IOException {
+        if(active())throw new IOException("End the active round before changing its sources.");
+        try {
+            FitPair fits = new FitPair(payload);
+            SharedPreferences.Editor edit = prefs.edit();
+            for (int i = 0; i < 2; i++) {
+                PlusPreset.Mode mode = fits.match[i].isEmpty() ? PlusPreset.Mode.SHARED : PlusPreset.Mode.LAYERED;
+                JSONObject preset = new JSONObject().put("name",fits.names[i]).put("mode",mode.name())
+                        .put("shared",fits.main[i]).put("match",fits.match[i]);
+                choice(preset.toString(), "");
+                edit.putString(sourceKey(i), preset.toString());
+            }
+            if(!edit.commit())throw new IOException("Could not save the comparison sources.");
+            notice = "Two generated presets ready.";
+        } catch(JSONException error) {throw new IOException("Could not read these generated presets.",error);}
+    }
     private void button(LinearLayout parent,String label,boolean primary,boolean enabled,Runnable action){
         Button b=primary?CompanionActions.primary(host,label,action):CompanionActions.secondary(host,label,action);
         b.setEnabled(enabled);host.add(parent,b,5);

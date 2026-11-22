@@ -1068,6 +1068,13 @@ public final class PlusActivity extends AppearanceActivity {
         }
         if (request == PlusConnection.ENABLE_RADIO) { connection.enabledRadio(result == RESULT_OK); return; }
         if(request==LAB_RESULT && result==RESULT_OK && data!=null) {
+            if(data.hasExtra(FitPair.EXTRA)){
+                try{
+                    blind.generatedFits(data.getStringExtra(FitPair.EXTRA));
+                    navigate(LabStyle.BLIND);
+                }catch(IOException error){showError(error.getMessage());}
+                return;
+            }
             String tuning=data.getStringExtra("tuningText");
             if(tuning==null) navigate(data.getIntExtra("nav",EQ));
             else try {

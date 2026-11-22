@@ -32,9 +32,24 @@ abstract class CompanionLibrary extends AppearanceActivity {
         targetIO.execute(()->{
             try{
                 if(!online())throw new IOException(OFFLINE_INDEX);
-                JSONObject result=key.startsWith("headphone:")?targets.headphone(this,key):key.isEmpty()?targets.index():targets.curve(key);
+                if(key.equals("headphone:index")){
+                    JSONArray entries=targets.headphoneIndex().getJSONArray("rows");
+                    runOnUiThread(()->{
+                        for(int offset=0;offset<entries.length();offset+=200){
+                            JSONArray page=new JSONArray();
+                            for(int i=offset;i<Math.min(offset+200,entries.length());i++)page.put(entries.opt(i));
+                            js("headphoneIndexPage("+request+","+page+")");
+                        }
+                        js("targetReply("+request+",null,null)");
+                    });
+                    return;
+                }
+                JSONObject result=key.startsWith("headphone:") || key.startsWith("bundled-headphone:")
+                        ?targets.headphone(this,key):key.isEmpty()?targets.index():targets.curve(key);
                 runOnUiThread(()->js("targetReply("+request+","+result.toString()+",null)"));
             }catch(Exception e){
+                if((getApplicationInfo().flags & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE)!=0)
+                    android.util.Log.d("YYEQ.Catalog", "Catalog request failed: "+e.getClass().getSimpleName()+" · "+e.getMessage());
                 String reason=online()?"Target service unavailable. Try again.":OFFLINE_INDEX;
                 runOnUiThread(()->js("targetReply("+request+",null,"+JSONObject.quote(reason)+")"));
             }
@@ -42,13 +57,16 @@ abstract class CompanionLibrary extends AppearanceActivity {
     }
     private final ExecutorService updates=Executors.newSingleThreadExecutor();
     private LinearLayout navigation;
+    private String pendingFitExport;
     abstract boolean plus();
     abstract boolean validFit(String shared,String match);
     private ValueCallback<Uri[]> selectedFiles;
     abstract void navigate(int dest);
     abstract void receive(String title,String shared,String match);
+    abstract void compareFits(String payload);
     @Override public void onCreate(Bundle state){
         super.onCreate(state);grant=new LibraryGrant(this);
+        if(state!=null)pendingFitExport=state.getString("fitExport");
         LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
         root.setOnApplyWindowInsetsListener((v,i)->{AppearanceActivity.applyInsets(v,i);return i;});
         if(standalone())LabStyle.standaloneHeader(this,root);
@@ -137,6 +155,13 @@ abstract class CompanionLibrary extends AppearanceActivity {
         });
     }
     @Override public void onBackPressed(){
+        if(ready){
+            page.evaluateJavascript("closeTargetSearch()",closed->{
+                if(!isFinishing() && !isDestroyed() && !"true".equals(closed))leaveLibrary();
+            });
+        }else leaveLibrary();
+    }
+    private void leaveLibrary(){
         if(returnToLibrary && autoEq){
             returnToLibrary=false;autoEq=false;drawNavigation();showTab();
         }else super.onBackPressed();
@@ -146,6 +171,7 @@ abstract class CompanionLibrary extends AppearanceActivity {
     }
     @Override protected void onSaveInstanceState(Bundle state){
         state.putBoolean("autoEq",autoEq);state.putBoolean("returnToLibrary",returnToLibrary);
+        state.putString("fitExport",pendingFitExport);
         super.onSaveInstanceState(state);
     }
     private static String color(int v){return JSONObject.quote(String.format(java.util.Locale.ROOT,"#%06x",v&0xffffff));}
@@ -161,10 +187,40 @@ abstract class CompanionLibrary extends AppearanceActivity {
     private void approval(boolean share){
         try{
             if(System.currentTimeMillis()-grant.issued()>=600000){js("requestEnded('expired')");return;}
-            String url=SITE+"/companion-link#key="+grant.challenge()+"&at="+grant.issued();
+            String url=SITE+"/companion-link#key="+grant.challenge()+"&at="+grant.issued()+"&ranks=1";
             startActivity(share?Intent.createChooser(new Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT,url),"Open in your signed-in browser"):
                     new Intent(Intent.ACTION_VIEW,Uri.parse(url)));
         }catch(Exception e){message("Could not open browser approval.");}
+    }
+    private void fetchPersonalRanks(int request){
+        io.execute(()->{
+            JSONObject data=null;
+            String error=null;
+            try{
+                String secret=grant.linked()?grant.secret():null;
+                if(secret==null)throw new IOException("Link your browser account in Sync to load your ranks.");
+                javax.net.ssl.HttpsURLConnection connection=(javax.net.ssl.HttpsURLConnection)new URL(
+                        SITE+"/api/companion/library?view=personal-ranks").openConnection();
+                try{
+                    connection.setInstanceFollowRedirects(false);
+                    connection.setUseCaches(false);
+                    connection.setConnectTimeout(8000);
+                    connection.setReadTimeout(15000);
+                    connection.setRequestProperty("Authorization","Bearer "+secret);
+                    int code=connection.getResponseCode();
+                    if(code==401 || code==403)throw new IOException("Check your browser link in Sync.");
+                    if(code!=200)throw new IOException("Could not read synced ranks. Try again.");
+                    try(InputStream input=connection.getInputStream()){
+                        data=new JSONObject(read(input,262144));
+                    }
+                    if(!data.has("personalRankings"))throw new IOException("Synced ranks need the matching website update.");
+                    if(!grant.linked() || !secret.equals(grant.secret()))return;
+                }finally{connection.disconnect();}
+            }catch(IOException failure){error=failure.getMessage();data=null;}
+            catch(Exception failure){error="Could not read synced ranks. Try again.";data=null;}
+            final String response="syncedRanksReply("+request+","+(data==null?"null":data.toString())+","+JSONObject.quote(error==null?"":error)+")";
+            runOnUiThread(()->js(response));
+        });
     }
     private void fetch(boolean disconnect){
         if(busy)return;busy=true;message(disconnect?"Disconnecting…":"Reading saved audio settings…");
@@ -256,6 +312,19 @@ abstract class CompanionLibrary extends AppearanceActivity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==FitExports.PICK_DESTINATION){
+            String payload=pendingFitExport;pendingFitExport=null;
+            Uri destination=result==RESULT_OK && data!=null?data.getData():null;
+            if(payload!=null && destination!=null && "content".equals(destination.getScheme())){
+                io.execute(()->{
+                    try{
+                        String note=new FitExports(payload).save(getContentResolver(),destination);
+                        runOnUiThread(()->{if(!isDestroyed())toast(note);});
+                    }catch(JSONException invalid){runOnUiThread(()->toast("Could not read the export. Try saving again."));}
+                });
+            }
+            return;
+        }
         if(request==TuningActivity.REQUEST){
             if(result==RESULT_OK && data!=null){
                 if(data.hasExtra("tuningText"))receive(data.getStringExtra("tuningName"),data.getStringExtra("tuningText"),"");
@@ -283,6 +352,7 @@ abstract class CompanionLibrary extends AppearanceActivity {
         @JavascriptInterface public void resetFitter(){if(fitter!=null)updates.execute(()->fitter.clear());}
         @JavascriptInterface public boolean onlineForTargets(){return online();}
         @JavascriptInterface public void targetRequest(int request,String key){if(key!=null && key.length()<160)requestTargets(request,key);}
+        @JavascriptInterface public void syncedPersonalRanks(int request){fetchPersonalRanks(request);}
         @JavascriptInterface public boolean rememberComparison(String comparison){
             if(comparison==null || comparison.length()>4*1024*1024)return false;
             return getSharedPreferences("local-fit-comparison",MODE_PRIVATE).edit().putString("last",comparison).commit();
@@ -338,6 +408,44 @@ abstract class CompanionLibrary extends AppearanceActivity {
                 android.content.ClipboardManager clipboard=getSystemService(android.content.ClipboardManager.class);
                 clipboard.setPrimaryClip(android.content.ClipData.newPlainText("PEQ filters",preset));
                 if(android.os.Build.VERSION.SDK_INT<33)toast("PEQ filters copied.");
+            });
+        }
+        private Intent phoneEqIntent(){
+            return new Intent(Intent.ACTION_SEND).setType("text/plain").setPackage("com.yinyangeq.android.playback");
+        }
+        @JavascriptInterface public boolean hasPhoneEq(){
+            return phoneEqIntent().resolveActivity(getPackageManager())!=null;
+        }
+        @JavascriptInterface public void openPhoneEq(String name,String preset){
+            if(name==null || name.length()>160 || preset==null || preset.isEmpty() || preset.length()>32768)return;
+            runOnUiThread(()->{
+                if(isDestroyed() || isFinishing())return;
+                Intent handoff=phoneEqIntent()
+                        .putExtra(Intent.EXTRA_SUBJECT,name).putExtra(Intent.EXTRA_TEXT,preset);
+                try{startActivity(handoff);}
+                catch(android.content.ActivityNotFoundException missing){toast("Install YinYang Phone EQ and set up Shizuku to use this fit for phone playback.");}
+            });
+        }
+        @JavascriptInterface public void saveFitFiles(String payload){
+            if(payload==null || payload.length()>262144)return;
+            runOnUiThread(()->{
+                if(pendingFitExport!=null || isDestroyed() || isFinishing())return;
+                try{
+                    Intent picker=new FitExports(payload).picker();
+                    pendingFitExport=payload;
+                    startActivityForResult(picker,FitExports.PICK_DESTINATION);
+                }catch(JSONException | android.content.ActivityNotFoundException error){
+                    pendingFitExport=null;
+                    message("Could not open the Android file picker.");
+                }
+            });
+        }
+        @JavascriptInterface public void compareGeneratedFits(String payload){
+            if(standalone() || payload==null || payload.length()>32768)return;
+            runOnUiThread(()->{
+                if(isDestroyed() || isFinishing() || binding()==null || !binding().active(CompanionLibrary.this))return;
+                try{new FitPair(payload);compareFits(payload);}
+                catch(JSONException error){message("Could not open these two fits in Blind A/B.");}
             });
         }
         @JavascriptInterface public void link(){runOnUiThread(()->{if(busy || grant.linked())return;try{grant.create();showCode();}catch(Exception e){message("Android secure credential storage is unavailable.");}});}

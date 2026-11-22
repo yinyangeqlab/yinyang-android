@@ -28,7 +28,7 @@ function received(data){
  if(!keepFit || justSaved)status(justSaved?'Saved to My Collection.':'Synced from your browser account.');
  justSaved=false;if(library.writable)Phone.history(0);
 }
-function signedOut(){clearAccountSelection();syncView='library';libraryType='eq';backupName='';backupKind='';historyRows=[];historyNext=null;stopJob();library={eqs:[],measurements:[]};linked=false;linkCode='';ended='';clearTimeout(approvalTimer);draw();}
+function signedOut(){resetSyncedRanks();clearAccountSelection();syncView='library';libraryType='eq';backupName='';backupKind='';historyRows=[];historyNext=null;stopJob();library={eqs:[],measurements:[]};linked=false;linkCode='';ended='';clearTimeout(approvalTimer);draw();}
 function pairing(code,issued){
  clearTimeout(approvalTimer);ended='';linkCode=code;linkIssued=issued;draw();
  approvalTimer=setTimeout(()=>{if(!linked && linkCode===code)requestEnded('expired');},Math.max(0,issued+600000-Date.now()));
@@ -143,7 +143,7 @@ function saveEntry(data){
  status('Saving to My Collection…');Phone.saveLibrary(payload);
 }
 function saveFinished(){justSaved=true;}
-function accessPaused(){clearAccountSelection();stopJob();library={eqs:[],measurements:[]};historyRows=[];historyNext=null;draw();}
+function accessPaused(){resetSyncedRanks();clearAccountSelection();stopJob();library={eqs:[],measurements:[]};historyRows=[];historyNext=null;draw();}
 function receivedHistory(offset,data){
  historyRows=offset?[...historyRows,...data.history]:data.history;historyNext=data.next;
  const list=document.querySelector('#phone-history');if(list)renderHistory(list);

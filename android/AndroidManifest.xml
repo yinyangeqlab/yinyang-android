@@ -15,6 +15,7 @@
     <intent><action android:name="com.samsung.settings.DEVICE_PROFILES_SETTINGS"/></intent>
     <intent><action android:name="android.settings.BLUETOOTH_DEVICE_DETAIL_SETTINGS"/></intent>
         <package android:name="com.qudelix.qudelix" />
+        <package android:name="com.yinyangeq.android.playback" />
         <intent><action android:name="android.settings.BLUETOOTH_SETTINGS"/></intent>
     </queries>
     <application android:label="YYEQ5K" android:icon="@mipmap/launcher" android:allowBackup="false"

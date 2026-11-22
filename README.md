@@ -10,7 +10,7 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 
 ## Install or update
 
-In App Manager, choose **YYEQ5K** (v0.16.4 · Build 65). Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. Manager also checks for its own updates. Both apps show their version and build at the top right.
+In App Manager, choose **YYEQ5K** (v0.16.5 · Build 66). Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. Manager also checks for its own updates. Both apps show their version and build at the top right.
 
 The unified app uses the original release Companion package. If you have phone-only presets in an earlier app, export them before switching. The separate Plus preview uses a different package. Install the unified app alongside it, link your DAC and import any exported presets you want to keep.
 

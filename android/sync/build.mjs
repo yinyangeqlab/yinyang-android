@@ -16,7 +16,7 @@ const parser=await build({stdin:{contents:"export {parseCurve} from './curves';e
 const publicEntries=['autoeq-catalog.json','jaysaudio-catalog.json'].flatMap(file=>
   JSON.parse(fs.readFileSync(path.join(source,'data',file),'utf8')).entries);
 fs.writeFileSync(path.join(dest,'headphone-catalog.json'),JSON.stringify(publicEntries));
-const headphoneRows=publicEntries.map(({name,source,rig,type},i)=>({key:'headphone:'+i,name,credit:[source,rig].filter(Boolean).join(' · '),type}));
+const headphoneRows=publicEntries.map(({name,source,rig,type},i)=>({key:'bundled-headphone:'+i,name,credit:[source,rig].filter(Boolean).join(' · '),type}));
 const script='const publicHeadphones='+JSON.stringify(headphoneRows).replace(/</g,'\\u003c')+';\n'+parser.outputFiles[0].text+'\n'+['library.js','auto-eq.js'].map(name=>fs.readFileSync(path.join(here,name),'utf8')).join('\n');
 const css=fs.readFileSync(path.join(here,'library.css'),'utf8');
 const html='<!doctype html><meta name="viewport" content="width=device-width, initial-scale=1"><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src &apos;none&apos;; script-src &apos;unsafe-inline&apos; &apos;wasm-unsafe-eval&apos;; worker-src blob:; style-src &apos;unsafe-inline&apos;; connect-src &apos;none&apos;"><style>'+css+'</style><main></main><script>const bundledWorker='+JSON.stringify(new TextDecoder().decode(worker)).replace(/</g,'\\u003c')+';\n'+script+'</script>';

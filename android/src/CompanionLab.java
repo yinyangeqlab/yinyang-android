@@ -312,7 +312,7 @@ abstract class CompanionLab extends AppearanceActivity {
             try {
                 if (!grant.linked() && grant.issued()>0 && System.currentTimeMillis()-grant.issued()<600000) {
                     collectionHint(false);
-                    load(ORIGIN+"/companion-link#key="+grant.challenge()+"&at="+grant.issued());
+                    load(ORIGIN+"/companion-link#key="+grant.challenge()+"&at="+grant.issued()+"&ranks=1");
                     return;
                 }
             } catch (Exception ignored) { /* The code may have expired or been replaced. */ }

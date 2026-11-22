@@ -20,4 +20,10 @@ public final class LabActivity extends CompanionLibrary {
             .putExtra("libraryDraft",true).putExtra("tuningText",shared).putExtra("matchText",match).putExtra("tuningName",title),-1);
         closeTab();
     }
+    void compareFits(String payload){
+        openTab(new Intent(this,DeviceWorkbench.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                .putExtra("device",getIntent().getStringExtra("device")).putExtra("blind",true)
+                .putExtra(FitPair.EXTRA,payload),-1);
+        closeTab();
+    }
 }

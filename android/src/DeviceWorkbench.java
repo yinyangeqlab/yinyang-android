@@ -181,6 +181,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         if (state == null && !audio && getIntent().getBooleanExtra("blind", false) && !routingPending()) {
             comparing = true;
             if (!audition) records.edit().putBoolean("ab.blind", true).apply();
+            if (!audition && getIntent().hasExtra(FitPair.EXTRA)) loadGeneratedComparison();
         }
         if(state==null && getIntent().getBooleanExtra("libraryDraft",false))importLibrary();
         else if (state == null && getIntent().hasExtra("tuningText")) importFromTuning();
@@ -1135,6 +1136,26 @@ public final class DeviceWorkbench extends AppearanceActivity {
         pairNames[i] = name;
         String prefix = "ab." + group + "." + i;
         records.edit().putString(prefix, enc(mapFileChannels(p))).putString(prefix + ".name", name).apply();
+    }
+    private void loadGeneratedComparison() {
+        try {
+            FitPair fits = new FitPair(getIntent().getStringExtra(FitPair.EXTRA));
+            Peq first = Peq.flat(0).importText(fits.main[0]), second = Peq.flat(0).importText(fits.main[1]);
+            if (first.same(second)) throw new IllegalArgumentException("Choose two distinct Main PEQ fits.");
+            SharedPreferences.Editor edit = records.edit();
+            for (int i = 0; i < 2; i++) {
+                pair[i] = i == 0 ? first : second;
+                pairNames[i] = fits.names[i];
+                String prefix = "ab.0." + i;
+                edit.putString(prefix, enc(pair[i])).putString(prefix + ".name", pairNames[i]);
+            }
+            round = null;
+            storeRound();
+            edit.apply();
+            feedback = "Two Main PEQ fits ready. The current Channel Match stays fixed.";
+        } catch (org.json.JSONException | IllegalArgumentException error) {
+            feedback = "Could not prepare the two Main PEQ fits.";
+        }
     }
     private void chooseSide(int i) {
         String[] options = session != null && fresh

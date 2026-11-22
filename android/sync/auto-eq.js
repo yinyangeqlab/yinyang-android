@@ -1,6 +1,6 @@
 let measurementSource='',targetMode='',singleFile,websiteMeasurement,websiteTarget,targetFile;
 let confirmed=null,localChoice='',searchOrigin='',uploadMessage='';
-function resetTarget(){targetMode='';websiteTarget=null;targetFile=null;requestId++;waiting=null;searchQuery='';searchMessage='';}
+function resetTarget(){targetSearchOpen=false;targetMode='';websiteTarget=null;targetFile=null;requestId++;waiting=null;searchQuery='';searchMessage='';}
 function editMeasurement(){confirmed=null;uploadMessage='';resetTarget();restoreOpened=false;draw();}
 function clearSelection(){singleFile=localLeft=localRight=websiteMeasurement=null;localChoice='';selectedMeasurement='';searchOrigin='';}
 function clearAccountSelection(){
@@ -75,87 +75,254 @@ function pairedMeasurement(){
  return localLeft && localRight?stereoMeasurement(localLeft.name+' + '+localRight.name,localLeft.points,localRight.points):null;
 }
 function online(){return Phone.onlineForTargets();}
-let catalogView='headphones',hitLimit=30;
+function phoneMeasurements(){
+ try{return JSON.parse(Phone.phoneMeasurements()).filter(row=>row.type===localKind);}
+ catch{return [];}
+}
+let catalogView='headphones',hitLimit=30,headphoneRows=publicHeadphones,headphonesLoaded=false;
+let targetSearchOpen=false,rankOrder='global',personalRanks=new Map(),rankState=null;
+let rankRequest=0,syncedRuns=[],selectedRun=0,refreshRankControls=null;
+let indexLoaded=false,indexRanked=false;
 const alphabetic=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
+function rankOf(row){
+ if(rankOrder==='global')return row.globalRank;
+ return personalRanks?.get(row.id) ?? personalRanks?.get(row.localId);
+}
+function targetOrder(a,b){
+ return (rankOf(a)??Infinity)-(rankOf(b)??Infinity)
+   || (a.globalRank??Infinity)-(b.globalRank??Infinity)
+   || alphabetic.compare(a.name,b.name) || alphabetic.compare(a.credit||'',b.credit||'');
+}
 function resultsForSearch(parent){
  parent.replaceChildren();
  const words=searchQuery.trim().toLowerCase().split(/\s+/).filter(Boolean);
- const hits=rows=>rows.filter(t=>{
-   const hay=[t.name,t.credit,t.source,t.rig,t.device].filter(Boolean).join(' ').toLowerCase();
-   return words.every(w=>hay.includes(w));
- }).sort((a,b)=>alphabetic.compare(a.name,b.name)||alphabetic.compare(a.credit||'',b.credit||''));
- function section(title,rows,select){
-   const found=hits(rows);el('h3',title+' · '+found.length,parent);
+ function section(title,rows,select,{rank=false,enabled=true,limited=false}={}){
+   const found=rows.filter(t=>{
+     const hay=[t.name,t.credit,t.source,t.rig,t.device].filter(Boolean).join(' ').toLowerCase();
+     return words.every(w=>hay.includes(w));
+   }).sort(rank?targetOrder:(a,b)=>alphabetic.compare(a.name,b.name)||alphabetic.compare(a.credit||'',b.credit||''));
+   el('h3',title+' ('+found.length+')',parent);
    if(!found.length){el('small','No matches',parent);return;}
-   for(const row of found.slice(0,hitLimit)){
-     const b=btn(row.name,()=>select(row),parent);if(row.credit||row.rig)el('small',row.credit||row.rig,b);
+   for(const row of limited?found.slice(0,hitLimit):found){
+     const b=btn(null,()=>select(row),parent);b.disabled=!enabled;
+     b.className='catalog-result';
+     const position=rank?rankOf(row):null;
+     if(position!=null){
+       const badge=el('span','#'+position,b);badge.className='catalog-rank';
+       badge.setAttribute('aria-label',(rankOrder==='personal'?'Personal rank ':'Global rank ')+position);
+     }
+     const title=el('span',row.name,b);
+     if(row.credit||row.rig)el('small',row.credit||row.rig,title);
    }
-   if(found.length>hitLimit)btn('Show more',()=>{hitLimit+=30;resultsForSearch(parent);},parent);
+   if(limited && found.length>hitLimit)
+     btn('Show more',()=>{const offset=parent.scrollTop;hitLimit+=30;resultsForSearch(parent);parent.scrollTop=offset;},parent);
  }
- if(catalogView==='headphones'){
-   section('My Collection',library.measurements.filter(m=>!m.type || m.type===localKind),row=>{
+ const connected=online(), head=catalogView==='headphones';
+ if(head){
+   const local=phoneMeasurements();
+   if(local.length)section('Saved on this phone',local,row=>{
+     try{
+       const measurement=JSON.parse(Phone.phoneMeasurement(row.id));
+       if(!measurement?.points?.length)throw Error('The saved measurement has no curve.');
+       requestId++;waiting=null;websiteMeasurement=measurement;selectedMeasurement=row.id;searchOrigin='phone';invalidate();
+     }catch{status('Could not open that saved measurement.');}
+   },{limited:true});
+   const saved=library.measurements.filter(m=>!m.type || m.type===localKind);
+   if(saved.length)section('My Collection',saved,row=>{
      requestId++;waiting=null;websiteMeasurement=row;selectedMeasurement=row.id;searchOrigin='library';invalidate();
-   });
- }else{
-   const savedTargets=library.eqs.filter(e=>e.target?.points?.length).map(e=>({...e.target,name:e.target.name||e.name}));
-   if(savedTargets.length)section('Saved targets',savedTargets,row=>{requestId++;waiting=null;websiteTarget=row;invalidate();});
+   },{limited:true});
  }
- if(!online()){el('p',offlineMessage,parent);return;}
- if(waiting){el('p',waiting.key?'Loading curve…':'Loading target index…',parent);return;}
- if(searchMessage){el('p',searchMessage,parent);if(catalogView==='targets')btn('Retry',()=>requestTarget(null),parent);}
- if(catalogView==='headphones')section(localKind==='ie'?'Public IEMs':'Public headphones',publicHeadphones.filter(row=>row.type===localKind),requestTarget);
- else if(indexRows.length)section('Target curves',indexRows,requestTarget);
+ const savedTargets=head?[]:library.eqs.filter(e=>e.target?.points?.length).map(e=>({...e.target,name:e.target.name||e.name}));
+ if(waiting){
+   const message=waiting.key && waiting.key!=='headphone:index'?'Loading curve…':head?'Loading headphone catalog…':'Loading targets and global rankings…';
+   el('p',message,parent).setAttribute('role','status');
+   if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);
+   return;
+ }
+ if(!connected)el('p',offlineMessage,parent);
+ else if(searchMessage)el('p',searchMessage,parent).setAttribute('role','status');
+ else if(!head && indexPartial)el('p','Part of the website target catalog is unavailable.',parent).setAttribute('role','status');
+ else if(!head && indexLoaded && !indexRanked && rankOrder==='global')
+   el('p','Global rankings are temporarily unavailable.',parent).setAttribute('role','status');
+ if(connected && (searchMessage || !head && indexLoaded && (indexPartial || !indexRanked)))
+   btn('Retry',()=>requestTarget(null),parent);
+ if(head){
+   section(localKind==='ie'?'Public IEMs':'Public headphones',headphoneRows.filter(row=>row.type===localKind),
+     requestTarget,{limited:true,enabled:connected});
+ }else{
+   if(indexRows.length)section('Targets',indexRows,requestTarget,{rank:true,enabled:connected});
+   if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);
+ }
 }
 function requestTarget(row){
- const list=document.querySelector('#target-hits');if(!list)return;
- if(!online()){waiting=null;requestId++;searchMessage=offlineMessage;resultsForSearch(list);return;}
- waiting={id:++requestId,key:row?.key||'',name:row?.name,credit:row?.credit,catalog:catalogView};searchMessage='';
+ const list=document.querySelector('#target-hits');
+ if(!list || waiting || !online())return;
+ const key=row?.key ?? (catalogView==='headphones'?'headphone:index':'');
+ waiting={id:++requestId,key,name:row?.name,credit:row?.credit,catalog:catalogView,rows:[]};
+ searchMessage='';
  if(catalogView==='headphones' && row)draw();else resultsForSearch(list);
- Phone.targetRequest(waiting.id,waiting.key);
+ Phone.targetRequest(waiting.id,key);
+}
+function headphoneIndexPage(id,rows){
+ if(waiting?.id===id && waiting.key==='headphone:index')waiting.rows.push(...rows);
 }
 function targetReply(id,data,error){
  if(!waiting || waiting.id!==id)return;
  const request=waiting;waiting=null;const list=document.querySelector('#target-hits');
  if(active!=='Auto EQ' || (!list && request.catalog!=='headphones'))return;
  try{
-  if(error)throw Error(error);
-  if(request.key){
-    if(request.catalog==='headphones'){
-      const left=Curves.parseCurve(data.csv,false);
-      websiteMeasurement=data.rightCsv?stereoMeasurement(request.name,left,Curves.parseCurve(data.rightCsv,false)):{name:request.name,points:left};
-      websiteMeasurement.credit=request.credit;
-      selectedMeasurement='';searchOrigin='public';invalidate();return;
-    }
-    let points=data.points;
-    if(!points){
-      const text=data.column<0?data.csv:data.csv.trim().split(/\r?\n/).slice(1).map(line=>{const cells=line.split(',');return cells[0]+','+cells[data.column+1];}).join('\n');
-      points=data.rightCsv?Curves.averageChannels(Curves.parseCurve(text,false),Curves.parseCurve(data.rightCsv,false)):Curves.parseCurve(text);
-    }
-    if(!Array.isArray(points)||points.length<2)throw Error('No compatible target points.');
-    websiteTarget={name:request.name,points};invalidate();return;
-  }
-  indexRows=data.rows;indexPartial=data.partial;
- }catch(e){searchMessage=e.message;}
+   if(error)throw Error(error);
+   if(request.key==='headphone:index'){headphoneRows=request.rows;headphonesLoaded=true;}
+   else if(request.key){
+     if(request.catalog==='headphones'){
+       const left=Curves.parseCurve(data.csv,false);
+       websiteMeasurement=data.rightCsv?stereoMeasurement(request.name,left,Curves.parseCurve(data.rightCsv,false)):{name:request.name,points:left};
+       websiteMeasurement.credit=request.credit;
+       selectedMeasurement='';searchOrigin='public';invalidate();return;
+     }
+     let points=data.points;
+     if(!points){
+       const text=data.column<0?data.csv:data.csv.trim().split(/\r?\n/).slice(1).map(line=>{const cells=line.split(',');return cells[0]+','+cells[data.column+1];}).join('\n');
+       points=Curves.parseCurve(text);
+     }
+     if(!Array.isArray(points)||points.length<2)throw Error('No compatible target points.');
+     chooseTarget({name:request.name,points});return;
+   }else{
+     indexRows=data.rows;indexPartial=data.partial;indexRanked=data.ranked;indexLoaded=true;
+   }
+ }catch(e){searchMessage=request.key==='headphone:index'?'Could not refresh the site catalog. Showing the included catalog.':e.message;}
  if(list)resultsForSearch(list);else draw();
 }
 function searchBox(parent,catalog){
  catalogView=catalog;
- const label=el('label',catalogView==='headphones'?'Search headphones':'Search target curves',parent);
- const field=el('input',null,label);field.type='search';field.placeholder=catalogView==='headphones'?'Model, source or rig':'Target or creator';field.value=searchQuery;
+ const label=el('label',catalog==='headphones'?'Search headphones':null,parent);
+ const field=el('input',null,label);
+ field.type='search';field.placeholder=catalog==='headphones'?'Model, source or rig':'Name or creator';field.value=searchQuery;
+ if(catalog==='targets')field.setAttribute('aria-label','Search targets by name or creator');
  const list=el('div',null,parent);list.id='target-hits';list.className='target-hits';list.setAttribute('aria-label','Search results');
  field.oninput=()=>{searchQuery=field.value;hitLimit=30;resultsForSearch(list);list.scrollTop=0;};
- const selected=catalog==='headphones'?websiteMeasurement:websiteTarget;
- if(selected)el('strong','Selected · '+selected.name,parent);
+ field.onkeydown=event=>{
+   if(event.key==='ArrowDown'){
+     const first=list.querySelector('button:not(:disabled)');if(first){event.preventDefault();first.focus();}
+   }
+ };
  resultsForSearch(list);
- if(catalogView==='targets' && !indexRows.length && online() && !waiting && !searchMessage)requestTarget(null);
+ const loaded=catalog==='headphones'?headphonesLoaded:indexLoaded;
+ if(!loaded && online() && !waiting && !searchMessage)requestTarget(null);
+ return list;
+}
+function closeTargetSearch(){
+ if(!targetSearchOpen)return false;
+ targetSearchOpen=false;refreshRankControls=null;
+ if(waiting?.catalog==='targets'){requestId++;waiting=null;}
+ searchQuery='';searchMessage='';
+ const dialog=document.querySelector('.target-lookup');
+ if(dialog?.open)dialog.close();
+ document.querySelector('.open-target-lookup')?.focus();
+ return true;
+}
+function chooseTarget(row){
+ websiteTarget=row;closeTargetSearch();invalidate();
+ document.querySelector('.open-target-lookup')?.focus();
+}
+function resetSyncedRanks(){
+ rankRequest++;rankState=null;personalRanks=new Map();syncedRuns=[];selectedRun=0;
+}
+function fetchSyncedRanks(){
+ if(!linked || rankState==='loading')return;
+ rankState='loading';
+ Phone.syncedPersonalRanks(++rankRequest);
+}
+function setPersonalRun(index){
+ selectedRun=index;
+ personalRanks=new Map(Object.entries(syncedRuns[index]?.positions||{}));
+}
+function syncedRanksReply(request,data,error){
+ if(request!==rankRequest || !linked)return;
+ if(error || data?.requiresApproval){
+   syncedRuns=[];setPersonalRun(0);rankState=error||'approval';
+ }
+ else{
+   syncedRuns=data?.personalRankings||[];
+   const measurement=confirmed?.id;
+   const match=measurement?syncedRuns.findIndex(run=>run.measurementId===measurement):-1;
+   setPersonalRun(match<0?0:match);
+   rankState='ready';
+ }
+ refreshRankControls?.();
+}
+function personalRankControls(parent,refresh){
+ const message=value=>el('small',value,parent).setAttribute('role','status');
+ const sync=()=>{
+   closeTargetSearch();
+   Phone.openSavedLibrary();
+ };
+ if(!linked){
+   message('Link your browser in Sync to load your Personal Tournaments.');
+   btn('Open Sync',sync,parent);
+ }else if(rankState==='approval'){
+   message('Reconnect your browser in Sync to approve Personal rank access.');
+   btn('Open Sync',sync,parent);
+ }else if(rankState==='ready'){
+   if(syncedRuns.length){
+     choice(parent,'Personal Tournament',syncedRuns.map((run,i)=>[String(i),run.label||'Tournament']),String(selectedRun),index=>{
+       setPersonalRun(Number(index));
+       const results=document.querySelector('#target-hits');
+       if(results){resultsForSearch(results);results.scrollTop=0;}
+     });
+   }else message('No ranked Personal Tournaments have synced yet.');
+   btn('Refresh ranks',()=>{fetchSyncedRanks();refresh();},parent);
+ }else if(rankState==='loading' || rankState===null){
+   if(rankState===null)fetchSyncedRanks();
+   message('Loading synced rankings…');
+ }else{
+   message(rankState);
+   btn('Retry',()=>{fetchSyncedRanks();refresh();},parent);
+ }
+}
+function renderTargetLookup(parent){
+ if(websiteTarget)el('strong',websiteTarget.name,parent);
+ const open=btn(websiteTarget?'Change target':'Choose target',()=>{
+   targetSearchOpen=true;searchQuery='';searchMessage='';draw();
+ },parent);
+ open.className='open-target-lookup';open.setAttribute('aria-haspopup','dialog');
+ if(!targetSearchOpen)return;
+ const dialog=el('dialog',null,parent);dialog.className='target-lookup';
+ const title=el('h2','Choose a target',dialog);title.id='target-lookup-title';
+ dialog.setAttribute('aria-labelledby',title.id);
+ const done=btn('Close',closeTargetSearch,dialog);done.autofocus=true;done.className='target-lookup-close';
+ dialog.addEventListener('cancel',event=>{event.preventDefault();closeTargetSearch();});
+ const rankArea=el('section',null,dialog);
+ let list;
+ function renderRankControls(){
+   rankArea.replaceChildren();
+   segments(rankArea,'Rank targets by',[['global','Global rank'],['personal','Personal rank']],rankOrder,value=>{
+     rankOrder=value;renderRankControls();
+     resultsForSearch(list);list.scrollTop=0;
+     rankArea.querySelector('[aria-pressed=true]')?.focus();
+   });
+   if(rankOrder==='personal'){
+     personalRankControls(rankArea,refreshRankControls);
+   }
+ }
+ refreshRankControls=()=>{
+   if(!dialog.open || rankOrder!=='personal')return;
+   renderRankControls();resultsForSearch(list);
+ };
+ renderRankControls();
+ list=searchBox(dialog,'targets');
+ dialog.showModal();
 }
 window.addEventListener('offline',()=>{
  const list=document.querySelector('#target-hits');
  if(!list && waiting?.catalog!=='headphones')return;
- requestId++;waiting=null;indexRows=[];searchMessage=offlineMessage;
+ requestId++;waiting=null;searchMessage='';
  if(list)resultsForSearch(list);else draw();
 });
-window.addEventListener('online',()=>{const list=document.querySelector('#target-hits');if(list && searchMessage===offlineMessage){searchMessage='';resultsForSearch(list);}});
+window.addEventListener('online',()=>{
+ const list=document.querySelector('#target-hits');
+ if(list){resultsForSearch(list);if(!(catalogView==='headphones'?headphonesLoaded:indexLoaded))requestTarget(null);}
+});
 function chart(parent,series){
  const canvas=el('canvas',null,parent);canvas.width=700;canvas.height=156;canvas.className='fit-chart';
  canvas.setAttribute('role','img');canvas.setAttribute('aria-label',series.map(s=>s.name).join(' and ')+' frequency response from 20 Hz to 20 kHz, aligned at 1 kHz');
@@ -196,8 +363,7 @@ function fitForm(){
    });
    if(!localKind)return;
    const methods=[['search','Search the index'],['local','Add your own measurement']];
-   let stored=[];
-   try{stored=JSON.parse(Phone.phoneMeasurements()).filter(m=>m.type===localKind);}catch{}
+   const stored=phoneMeasurements();
    if(stored.length)methods.push(['phone','Use a file saved on this phone']);
    radios(input,'Measurement source',methods,measurementSource,source=>{
      clearSelection();measurementSource=source;editMeasurement();
@@ -209,7 +375,8 @@ function fitForm(){
      if(selected){
        const summary=el('div',null,input);summary.className='selected-headphone';
        el('strong',selected.name,summary);
-       const source=searchOrigin==='library'?['My Collection',selected.rig].filter(Boolean).join(' · '):selected.credit;
+       const source=searchOrigin==='phone'?'Saved on this phone':searchOrigin==='library'?
+         ['My Collection',selected.rig].filter(Boolean).join(' · '):selected.credit;
        if(source)el('small',source,summary);
        if(!candidate)el('small','Loading measurement…',summary).setAttribute('role','status');
        btn('Change selection',()=>{
@@ -254,23 +421,22 @@ function fitForm(){
  btn('Change measurement',editMeasurement,input).className='clear-file';
  const targetPanel=pane(main,'2. Choose a target response');
  radios(targetPanel,'Target source',[['search','Search target curves'],['file','Attach target file']],targetMode,key=>{
-   resetTarget();targetMode=key;invalidate();
+   resetTarget();targetMode=key;targetSearchOpen=key==='search';invalidate();
  });
  let t;
  if(targetMode==='file'){pickFile(targetPanel,'Target response',targetFile,file=>{targetFile=file;invalidate();});t=targetFile;}
- if(targetMode==='search'){searchBox(targetPanel,'targets');t=websiteTarget;}
+ if(targetMode==='search'){renderTargetLookup(targetPanel);t=websiteTarget;}
  if(!t?.points?.length)return;
  const run=el('section');run.className='fit-run';chart(run,[{name:'Measurement',points:confirmed.points},{name:'Target',points:t.points}]);
- const mainButton=btn('Generate Main PEQ',()=>startFit(confirmed,t,null,run,mainButton),run);mainButton.className='fit-primary';
- el('small',standalone?'Compare results and copy the filters you want to use.':'Preview fits before loading one into Filters.',run);
  const matches=[...(someMatch(confirmed)?[['auto','Selected measurement',confirmed]]:[]),
    ...library.eqs.filter(e=>someMatch(e.channelMatch)).map(e=>['eq:'+e.id,e.name,e.channelMatch]),
    ...library.measurements.filter(someMatch).map(m=>['m:'+m.id,m.name,m])];
  if(!matches.some(([id])=>id===selectedMatch))selectedMatch=matches[0]?.[0]||'';
  if(matches.length>1)choice(run,'Channel Match source',matches.map(([id,label])=>[id,label]),selectedMatch,id=>{selectedMatch=id;invalidate();});
  const match=matches.find(([id])=>id===selectedMatch)?.[2];
- const extra=btn('Generate Optional Channel Match',()=>startFit(confirmed,t,match,run,extra),run);extra.disabled=!match;
- el('small',match?'Compare Main PEQ fits with a left/right correction for this measurement.':'Add a left/right measurement or a saved channel match to enable this option.',run);
+ const generate=btn('Generate EQ',()=>startFit(confirmed,t,match,run,generate),run);
+ generate.className='fit-primary';
+ el('small',match?'Generates Main PEQ and left/right Channel Match together.':'Generates Main PEQ. Add a left/right measurement to include Channel Match.',run);
 }
 
 function startFit(m,t,match,run,button){
@@ -312,11 +478,43 @@ function renderComparison(saved,parent){
  const ordered=(a,b)=>a.c.rms-b.c.rms||a.c.peak-b.c.peak||a.c.count-b.c.count;
  valid.sort(ordered);
  const [best,close]=saved.choices;
+ const hasMatch=match=>!saved.mainOnly && match?.channels.some(ear=>ear.filters.length || ear.preamp);
+ const mainText=(option,c)=>peq(c?result.user[c.ui]:option);
+ const matchText=match=>hasMatch(match)?channelPeq(match.channels):'';
+ const saveFiles=(name,files)=>Phone.saveFitFiles(JSON.stringify({name,files}));
+ const pairedText=(main,match)=>main+(match?'\n\n'+match:'');
+ function saveAll(){
+   const files=options.map((opt,i)=>{
+     const fit=valid.find(({c})=>result.user[c.ui].index===i)?.c;
+     return {name:(i+1)+' - '+opt.label+' - Main PEQ',text:mainText(opt,fit)};
+   });
+   const matchFiles=new Set();
+   for(const match of result.matches){
+     const text=matchText(match);
+     if(text && !matchFiles.has(text)){
+       matchFiles.add(text);
+       files.push({name:matchFiles.size+' - '+match.label+' - Channel Match',text});
+     }
+   }
+   saveFiles(saved.name+' - EQ fits',files);
+ }
+ function compareFits(){
+   const describe=c=>{
+     const user=result.user[c.ui],opt=options[user.index];
+     return {name:opt.label,main:peq(user),match:matchText(result.matches[c.mi])};
+   };
+   if(best<0)return null;
+   const first=describe(result.ranked[best]);
+   const alternates=[close,...valid.map(v=>v.i)].filter(i=>i>=0 && i!==best);
+   const second=alternates.map(i=>describe(result.ranked[i])).find(fit=>fit.main!==first.main || model && fit.match!==first.match);
+   return second?[first,second]:null;
+ }
  if(confirmed)btn('Back to measurement and target',()=>{restoreOpened=false;draw();},parent).className='clear-file';
  const heading=el('header',null,parent);heading.className='comparison-head';
  el('h2','Your fit comparison',heading);
  el('p',saved.name+' → '+saved.target,heading);
  chart(heading,[{name:'Measurement',points:saved.raw},{name:'Target',points:saved.targetPoints}]);
+ btn('Save all fits as TXT',saveAll,heading);
  const budget=el('section',null,parent);budget.className='fit-pane';
  el('h3','Best fit at each band limit',budget);
  el('small','Ranked by stereo RMS error · lower is closer',budget);
@@ -342,13 +540,23 @@ function renderComparison(saved,parent){
    chart(box,[{name:'Predicted Main EQ',points:corrected},{name:'Target',points:saved.targetPoints}]);
    if(opt.labels.length)el('small',opt.labels.join(' · '),box);
    if(opt.fallback)el('small',opt.fallback,box);
-   btn('Copy Main PEQ',()=>Phone.copyPeq(peq({preamp:c?result.user[c.ui].preamp:opt.preamp,filters:activeFilters})),box);
+   const exports=el('div',null,box);exports.className='fit-export-actions';
+   const main=mainText(opt,c),filename=saved.name+' - '+opt.label;
+   btn('Copy Main PEQ',()=>Phone.copyPeq(main),exports);
+   btn('Save Main PEQ as TXT',()=>saveFiles(filename,[{name:filename+' - Main PEQ',text:main}]),exports);
+   if(Phone.hasPhoneEq()){
+     const phonePreset=pairedText(main,c?matchText(result.matches[c.mi]):'');
+     btn('Open in Phone EQ',()=>Phone.openPhoneEq(filename.slice(0,160),phonePreset),exports);
+   }
    if(c){
      const u=result.user[c.ui],match=result.matches[c.mi],title=saved.name+' · '+opt.label;
      el('p',match.label+' · '+[u.filters.length,...match.channels.map(ear=>ear.filters.length)].join(' / ')+' filters (Main / Left / Right)',box);
      draftButton('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels),box).className='fit-primary';
-     if(!saved.mainOnly && match.channels.some(ear=>ear.filters.length || ear.preamp)){
-       btn('Copy Channel Match',()=>Phone.copyPeq(channelPeq(match.channels)),box);
+     if(hasMatch(match)){
+       const text=matchText(match);
+       btn('Copy Channel Match',()=>Phone.copyPeq(text),exports);
+       btn('Save Channel Match as TXT',()=>saveFiles(filename,[{name:filename+' - Channel Match',text}]),exports);
+       btn('Save paired preset as TXT',()=>saveFiles(filename,[{name:filename+' - Paired EQ',text:pairedText(main,text)}]),exports);
        draftButton('Review Channel Match only',()=>use(title,null,match.channels),box);
      }
      if(linked && library.writable)btn('Save fit to My Collection',()=>saveEntry({action:'eq',name:title.slice(0,100),filters:u.filters,preamp:u.preamp,
@@ -385,6 +593,12 @@ function renderComparison(saved,parent){
  };
  if(best>=0){pick(best,best===close?'Best fit and lower boost':'Best fit');if(close!==best)pick(close,'Lower boost, close fit');}
  else el('p',standalone?'Review and copy the calculated Main EQ options below.':'No complete fit can be loaded on this model.',rec);
+ const pair=compareFits();
+ const compare=btn('Compare best fits in Blind A/B',()=>Phone.compareGeneratedFits(JSON.stringify(pair)),rec);
+ compare.disabled=standalone || !pair;
+ if(standalone)el('small','Link a Qudelix to audition the fits in Blind A/B.',rec);
+ else if(!pair)el('small','Blind A/B needs two distinct fits.',rec);
+ else if(!model && !saved.mainOnly)el('small','Blind A/B on the original 5K compares Main PEQ with the current Channel Match fixed.',rec);
  const all=el('details',null,parent);all.className='all-options';el('summary','All generated options ('+options.length+')',all);
  const picker=choice(all,'Fitter and band limit',options.map((o,i)=>[String(i),o.label+(o.labels.includes('Lower boost')?' · Lower boost':'')]),'0',()=>inspect());
  const variants=el('div',null,all);
