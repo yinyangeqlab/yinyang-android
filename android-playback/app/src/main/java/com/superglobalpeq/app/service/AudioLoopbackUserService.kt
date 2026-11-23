@@ -39,7 +39,6 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
         private const val RULE_MATCH_UID = 0x1 shl 2
         private const val ROUTE_FLAG_LOOP_BACK = 0x1 shl 1
         private const val AUDIO_MANAGER_SUCCESS = 0
-        private const val ANDROID_17 = 37
         private const val SAMPLE_RATE = 48000
         private const val BLOCK_SHORTS = 480 * 2 // 10 ms @ 48 kHz stereo PCM_16BIT
     }
@@ -99,6 +98,9 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
 
     @Volatile
     private var lastError: String? = null
+
+    @Volatile
+    private var startupTrace = ""
 
     init {
         Runtime.getRuntime().addShutdownHook(Thread({
@@ -167,11 +169,15 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
             if (destroying.get()) return false
             stopInternal()
             lastError = null
+            startupTrace = ""
+            var phase = "Preset validation"
+            startupEvent("Starting audio route (API ${Build.VERSION.SDK_INT}).")
             return try {
                 val parsed = parseConfig(dspConfigJson)
                 processor.resetStates()
                 processor.updateConfig(parsed)
 
+                phase = "Audio policy setup"
                 val ctx = ensureShellContext()
                 val myUid = Process.myUid()
 
@@ -225,63 +231,102 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
                 regStatic.isAccessible = true
                 val regRes = regStatic.invoke(null, policy) as Int
                 if (regRes != AUDIO_MANAGER_SUCCESS) {
-                    lastError = "registerAudioPolicyStatic failed: code=$regRes"
-                    return false
+                    return failStartup("Android rejected the audio route.", "Audio policy registration returned $regRes.")
                 }
                 audioPolicyObj = policy
+                startupEvent("Audio policy registered.")
 
-                val record = if (Build.VERSION.SDK_INT >= ANDROID_17) {
-                    createRecordForRegisteredMix(ctx, audioMixClass, audioMix, mixFormat)
-                } else {
-                    audioPolicyClass.getMethod("createAudioRecordSink", audioMixClass)
-                        .invoke(policy, audioMix) as? AudioRecord
-                }
-                if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
-                    record?.release()
-                    lastError = "Android could not open the playback capture route."
-                    stopInternal()
-                    return false
-                }
-                activeRecord = record
-
+                phase = "Output initialization"
                 val track = createOutputTrack(ctx)
-                if (track.state != AudioTrack.STATE_INITIALIZED) {
-                    track.release()
-                    lastError = "Android could not open the playback output."
-                    stopInternal()
-                    return false
-                }
                 activeTrack = track
-
-                record.startRecording()
-                track.play()
-                if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING ||
-                    track.playState != AudioTrack.PLAYSTATE_PLAYING) {
-                    lastError = "Android opened the route but did not start playback processing."
-                    stopInternal()
-                    return false
+                if (track.state != AudioTrack.STATE_INITIALIZED) {
+                    return failStartup("Android could not open the playback output.", "Output state ${track.state}.")
                 }
+                startupEvent("Playback output initialized.")
+
+                phase = "Capture startup"
+                val capturing = startCapture(Build.VERSION.SDK_INT) { route ->
+                    tryStartCapture(route) {
+                        when (route) {
+                            CaptureRoute.SHELL_CONTEXT -> createRecordForRegisteredMix(ctx, audioMixClass, audioMix, mixFormat)
+                            CaptureRoute.POLICY -> audioPolicyClass.getMethod("createAudioRecordSink", audioMixClass)
+                                .invoke(policy, audioMix) as? AudioRecord
+                        }
+                    }
+                }
+                if (!capturing) {
+                    return failStartup("Android could not start playback capture.", "No capture route started.")
+                }
+                val record = checkNotNull(activeRecord)
+
+                phase = "Output startup"
+                track.play()
+                if (track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    return failStartup("Android could not start the playback output.", "Output play state ${track.playState}.")
+                }
+                phase = "Processing startup"
                 loopRunning.set(true)
                 val t = Thread({ runAudioLoop(record, track) }, "peq-audio-loop")
                 workerThread = t
                 t.start()
-                Log.i(TAG, "Loopback engine started cleanly")
+                startupEvent("Playback processing started.")
                 true
-            } catch (t: Throwable) {
-                Log.e(TAG, "startLoopback failed", t)
-                lastError = "Android could not open the media playback route."
-                stopInternal()
-                false
+            } catch (e: Throwable) {
+                val message = when (phase) {
+                    "Output initialization" -> "Android could not open the playback output."
+                    "Output startup" -> "Android could not start the playback output."
+                    else -> "Android could not start the media playback route."
+                }
+                failStartup(message, "$phase failed (${failureType(e)}).")
             }
         }
+    }
+
+    private fun tryStartCapture(route: CaptureRoute, open: () -> AudioRecord?): Boolean {
+        var record: AudioRecord? = null
+        var started = false
+        var operation = "open"
+        startupEvent("${route.label} capture: opening.")
+        try {
+            record = open()
+            if (record == null || record.state != AudioRecord.STATE_INITIALIZED) {
+                startupEvent("${route.label} capture: initialization state ${record?.state ?: "missing"}.", failed = true)
+                return false
+            }
+            operation = "start"
+            record.startRecording()
+            val state = record.recordingState
+            started = state == AudioRecord.RECORDSTATE_RECORDING
+            if (started) activeRecord = record
+            startupEvent("${route.label} capture: recording state $state.", failed = !started)
+            return started
+        } catch (e: Exception) {
+            startupEvent("${route.label} capture: $operation failed (${failureType(e)}).", failed = true)
+            return false
+        } finally {
+            if (!started) runCatching { record?.release() }
+        }
+    }
+
+    private fun failureType(e: Throwable): String = (e.cause ?: e).javaClass.simpleName
+
+    private fun failStartup(message: String, detail: String): Boolean {
+        startupEvent(detail, failed = true)
+        lastError = message
+        stopInternal()
+        return false
+    }
+
+    private fun startupEvent(detail: String, failed: Boolean = false) {
+        startupTrace += if (startupTrace.isEmpty()) detail else "\n$detail"
+        if (failed) Log.w(TAG, detail) else Log.i(TAG, detail)
     }
 
     @SuppressLint("MissingPermission", "DiscouragedPrivateApi")
     private fun createRecordForRegisteredMix(
         context: Context, mixType: Class<*>, mix: Any, mixFormat: AudioFormat
     ): AudioRecord {
-        // Android 17's policy helper can use the client package with the Shizuku process UID.
-        // Build the same registered mix's recorder with the service's own shell context.
+        // Build the same registered mix's recorder with the service's own shell attribution.
         val registration = mixType.getMethod("getRegistration").invoke(mix) as String
         check(registration.isNotBlank()) { "Android did not register the playback mix." }
         val attributes = AudioAttributes.Builder()
@@ -436,7 +481,7 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
     override fun getStatusJson(): String {
         requireActiveClient()
         return JSONObject().put("running", loopRunning.get())
-            .put("error", lastError ?: JSONObject.NULL).toString()
+            .put("error", lastError ?: JSONObject.NULL).put("startupTrace", startupTrace).toString()
     }
 
     override fun registerClientToken(clientToken: IBinder?) {

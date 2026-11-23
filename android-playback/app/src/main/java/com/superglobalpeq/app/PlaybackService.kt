@@ -14,6 +14,7 @@ import android.os.Binder
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import com.superglobalpeq.app.service.AudioLoopbackUserService
 import com.superglobalpeq.app.service.IAudioLoopbackService
 import org.json.JSONObject
@@ -29,10 +30,15 @@ class PlaybackService : Service() {
         const val PRESET_ID = "presetId"
         private const val CHANNEL = "playback"
         private const val NOTIFICATION = 1
+        private const val DIAGNOSTICS = "playbackDiagnostics"
+        private const val LAST_STARTUP = "lastStartup"
         data class Status(val message: String, val busy: Boolean = false, val running: Boolean = false,
                           val activePresetId: String? = null)
         @Volatile var status = Status("Phone EQ is off.")
             private set
+
+        fun lastStartup(context: Context): String? = context.getSharedPreferences(DIAGNOSTICS, Context.MODE_PRIVATE)
+            .getString(LAST_STARTUP, null)
 
         fun notificationsEnabled(context: Context): Boolean {
             val manager = context.getSystemService(NotificationManager::class.java)
@@ -51,7 +57,7 @@ class PlaybackService : Service() {
     private val client = Binder()
     private val args by lazy {
         Shizuku.UserServiceArgs(ComponentName(packageName, AudioLoopbackUserService::class.java.name))
-            .daemon(false).processNameSuffix("phone_eq_audio").version(3)
+            .daemon(false).processNameSuffix("phone_eq_audio").version(4)
     }
     private var bound = false
     private var generation = 0
@@ -61,7 +67,12 @@ class PlaybackService : Service() {
     private var presetId: String? = null
     private var remote: IAudioLoopbackService? = null
     private val binderDead = Shizuku.OnBinderDeadListener {
-        handler.post { if (!stopping) finishPlayback("Shizuku stopped. Phone EQ is off.") }
+        handler.post {
+            if (!stopping) {
+                if (status.busy && !status.running) rememberStartup("Shizuku stopped during startup.")
+                finishPlayback("Shizuku stopped. Phone EQ is off.")
+            }
+        }
     }
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(component: ComponentName, binder: IBinder) {
@@ -72,11 +83,15 @@ class PlaybackService : Service() {
 
         override fun onServiceDisconnected(component: ComponentName) {
             remote = null
+            if (!stopping && status.busy && !status.running) rememberStartup("Shizuku audio service disconnected during startup.")
             if (!stopping) finishPlayback("The audio connection ended. Phone EQ is off.")
         }
     }
     private val timeout = Runnable {
-        if (remote == null && !stopping) finishPlayback("Could not connect to the Shizuku audio service.")
+        if (remote == null && !stopping) {
+            rememberStartup("Shizuku audio service connection timed out.")
+            finishPlayback("Could not connect to the Shizuku audio service.")
+        }
     }
 
     override fun onCreate() {
@@ -102,14 +117,17 @@ class PlaybackService : Service() {
         name = PresetInput.title(intent.getStringExtra(NAME) ?: "Phone EQ")
         startForeground(NOTIFICATION, notification("Starting Phone EQ…"))
         if (config == null || !authorized()) {
+            rememberStartup(if (config == null) "No preset configuration provided." else "Shizuku is unavailable or unauthorized.")
             finishPlayback("Start Shizuku with Android debugging and grant access first.")
             return START_NOT_STICKY
         }
         if (!notificationsEnabled(this)) {
+            rememberStartup("Playback notifications are disabled.")
             finishPlayback("Enable playback notifications to use Phone EQ.")
             return START_NOT_STICKY
         }
         if (stopping) return START_NOT_STICKY
+        if (!status.running) rememberStartup("Connecting to the Shizuku audio service…")
         status = status.copy(message = "Starting Phone EQ…", busy = true)
         if (remote != null) applyPreset()
         else if (!bound) {
@@ -117,7 +135,8 @@ class PlaybackService : Service() {
                 Shizuku.bindUserService(args, connection)
                 bound = true
                 handler.postDelayed(timeout, 10000)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                rememberStartup("Could not bind the Shizuku audio service (${e.javaClass.simpleName}).")
                 finishPlayback("Could not bind the Shizuku audio service.")
             }
         }
@@ -132,18 +151,31 @@ class PlaybackService : Service() {
         val attempt = ++generation
         handler.removeCallbacks(timeout)
         worker.execute {
-            val applied = runCatching {
+            val result = runCatching {
                 service.registerClientToken(client)
                 val listening = JSONObject(service.statusJson).optBoolean("running")
                 if (listening) {
                     service.updateDspConfig(preset)
                 } else service.startLoopback(preset)
-            }.getOrDefault(false)
-            val problem = if (applied) "" else runCatching {
-                JSONObject(service.statusJson).optString("error", "")
-            }.getOrDefault("")
+            }
+            val applied = result.getOrDefault(false)
+            val diagnostics = runCatching { JSONObject(service.statusJson) }.getOrNull()
+            val problem = diagnostics?.optString("error").orEmpty()
             handler.post {
                 if (attempt != generation || stopping) return@post
+                if (!status.running || !applied) {
+                    val trace = diagnostics?.optString("startupTrace").orEmpty()
+                    val error = result.exceptionOrNull()?.javaClass?.simpleName
+                    rememberStartup(listOfNotNull(
+                        trace.takeIf { it.isNotBlank() },
+                        error?.let { "Shizuku audio service call failed ($it)." },
+                        when {
+                            applied -> "Playback started."
+                            problem.isNotBlank() && problem != "null" -> problem
+                            else -> "Audio routing could not start."
+                        },
+                    ).joinToString("\n"))
+                }
                 if (applied) {
                     status = Status("Playing · $activeName", running = true, activePresetId = activeId)
                     getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(activeName))
@@ -155,6 +187,11 @@ class PlaybackService : Service() {
         }
     }
 
+    private fun rememberStartup(trace: String) {
+        Log.i("PhoneEqPlayback", trace)
+        getSharedPreferences(DIAGNOSTICS, MODE_PRIVATE).edit().putString(LAST_STARTUP, trace).apply()
+    }
+
     private fun poll(service: IAudioLoopbackService, attempt: Int) {
         handler.postDelayed({
             if (attempt != generation || stopping) return@postDelayed
@@ -163,11 +200,19 @@ class PlaybackService : Service() {
                 return@postDelayed
             }
             worker.execute {
-                val running = runCatching { JSONObject(service.statusJson).optBoolean("running") }.getOrDefault(false)
+                val diagnostics = runCatching { JSONObject(service.statusJson) }.getOrNull()
                 handler.post {
                     if (attempt != generation || stopping) return@post
-                    if (running) poll(service, attempt)
-                    else finishPlayback("Audio processing stopped. Phone EQ is off.")
+                    if (diagnostics?.optBoolean("running") == true) {
+                        poll(service, attempt)
+                    } else {
+                        val error = diagnostics?.optString("error").orEmpty()
+                        val reason = error.takeUnless { it.isBlank() || it == "null" }
+                            ?: "Audio processing stopped."
+                        val trace = diagnostics?.optString("startupTrace").orEmpty()
+                        rememberStartup(listOf(trace, reason).filter(String::isNotBlank).joinToString("\n"))
+                        finishPlayback("Audio processing stopped. Phone EQ is off.")
+                    }
                 }
             }
         }, 1500)

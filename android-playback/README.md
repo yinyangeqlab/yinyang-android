@@ -8,6 +8,10 @@ Install Shizuku and start it from its Wireless debugging setup. Return to Phone 
 
 Phone EQ needs Android 13 or newer. Playback coverage depends on the phone's audio routing. It stores the confirmed preset on the device and processes audio in memory. The playback notification gives you a Stop action while Phone EQ is active. Playback stops if Shizuku or notification access is lost.
 
+## Report a playback issue
+
+After reproducing the issue, open **Home → Report a bug → Copy details** and share the report with support. It includes your phone model and Android build, Shizuku and notification access, available audio output types, and Phone EQ’s latest startup trace. The report stays on your phone until you share it.
+
 ## Build and license
 
 Use JDK 21, Gradle 9.1.0 and Android SDK Platform 36. Set `ANDROID_HOME` to the SDK and run `gradle :app:testDebugUnitTest :app:assembleRelease` in this directory. The unsigned release APK is `app/build/outputs/apk/release/app-release-unsigned.apk`. Sign the release APK with the established Lab key before distributing it or submitting it for Play Protect review. [Google’s Play Protect developer guidance](https://developers.google.com/android/play-protect/warning-dev-guidance)

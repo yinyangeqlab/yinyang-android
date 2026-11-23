@@ -1,9 +1,12 @@
 package com.superglobalpeq.app
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -11,7 +14,10 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -87,6 +93,8 @@ class PlaybackActivity : Activity() {
     private lateinit var playbackStatus: TextView
     private lateinit var playback: Button
     private lateinit var stop: Button
+    private lateinit var reportBug: Button
+    private var bugDialog: AlertDialog? = null
     private var themeIndex = 0
     private var setup: Setup? = null
     private var selected: EqPreset? = null
@@ -143,6 +151,7 @@ class PlaybackActivity : Activity() {
         home.post { home.scrollTo(0, scroll) }
         presetList.setSelectionFromTop(savedInstanceState?.getInt("listPosition") ?: 0,
             savedInstanceState?.getInt("listOffset") ?: 0)
+        if (savedInstanceState?.getBoolean("bugReportOpen") == true) showBugReport()
     }
 
     override fun onSaveInstanceState(out: Bundle) {
@@ -160,6 +169,7 @@ class PlaybackActivity : Activity() {
         out.putInt("scroll", home.scrollY)
         out.putInt("listPosition", presetList.firstVisiblePosition)
         out.putInt("listOffset", presetList.getChildAt(0)?.top ?: 0)
+        out.putBoolean("bugReportOpen", bugDialog?.isShowing == true)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -168,7 +178,9 @@ class PlaybackActivity : Activity() {
         refresh()
     }
 
-    @Suppress("DEPRECATION")
+    // Gestures use OnBackInvokedCallback. This also handles legacy Back key dispatch.
+    @SuppressLint("GestureBackNavigation")
+    @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
     override fun onBackPressed() {
         if (!backToParent()) super.onBackPressed()
     }
@@ -197,6 +209,7 @@ class PlaybackActivity : Activity() {
     }
 
     override fun onDestroy() {
+        bugDialog?.dismiss()
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
         reader.shutdownNow()
@@ -296,6 +309,8 @@ class PlaybackActivity : Activity() {
         playback = button("Start phone EQ", prominent = true, action = ::startPlayback)
         footer.addView(stop, spaced(8))
         footer.addView(playback, spaced(8))
+        reportBug = button("Report a bug", action = ::showBugReport)
+        footer.addView(reportBug, spaced(8, -2))
         root.addView(bottom, -1, -2)
         setContentView(root)
         window.setDecorFitsSystemWindows(false)
@@ -599,6 +614,54 @@ class PlaybackActivity : Activity() {
         catch (_: ActivityNotFoundException) { importMessage = "Open the link in a browser."; refresh() }
     }
 
+    private fun showBugReport() {
+        val app = packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        val shizukuVersion = runCatching {
+            packageManager.getPackageInfo(SHIZUKU_PACKAGE, PackageManager.PackageInfoFlags.of(0)).versionName
+        }.getOrNull()
+        val shizukuStatus = when (shizukuSetup()) {
+            Setup.MISSING -> "not installed"
+            Setup.STOPPED -> "not running"
+            Setup.UNAUTHORIZED -> "running via debugging, access not granted"
+            Setup.UNSUPPORTED -> "running in an unsupported mode"
+            Setup.READY -> "running via debugging, access granted"
+        }
+        val outputs = getSystemService(AudioManager::class.java)
+            .getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { outputName(it.type) }.distinct().sorted()
+        val report = buildString {
+            appendLine("${applicationInfo.loadLabel(packageManager)} ${app.versionName} (build ${app.longVersionCode})")
+            appendLine("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+            appendLine("Android build ${Build.DISPLAY}")
+            appendLine("Android security patch ${Build.VERSION.SECURITY_PATCH}")
+            appendLine("Shizuku: $shizukuStatus${shizukuVersion?.let { " (version $it)" }.orEmpty()}")
+            val notifications = if (PlaybackService.notificationsEnabled(this@PlaybackActivity)) "enabled" else "disabled"
+            appendLine("Playback notifications $notifications")
+            appendLine("Available audio outputs: ${outputs.joinToString().ifEmpty { "none reported" }}")
+            appendLine()
+            append(PlaybackService.lastStartup(this@PlaybackActivity) ?: "No playback startup recorded yet.")
+        }
+        bugDialog = AlertDialog.Builder(this)
+            .setTitle("Report a bug")
+            .setMessage("Copy these details and share them with the person helping you.\n\n$report")
+            .setNegativeButton("Close", null)
+            .setPositiveButton("Copy details") { _, _ ->
+                getSystemService(ClipboardManager::class.java)
+                    .setPrimaryClip(ClipData.newPlainText("Phone EQ diagnostics", report))
+            }.show().also { dialog -> dialog.setOnDismissListener { bugDialog = null } }
+    }
+
+    private fun outputName(type: Int): String = when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER, AudioDeviceInfo.TYPE_BUILTIN_SPEAKER_SAFE -> "Speaker"
+        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "Earpiece"
+        AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_WIRED_HEADSET -> "Wired headphones"
+        AudioDeviceInfo.TYPE_USB_DEVICE, AudioDeviceInfo.TYPE_USB_HEADSET, AudioDeviceInfo.TYPE_USB_ACCESSORY -> "USB audio"
+        AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+        AudioDeviceInfo.TYPE_BLE_HEADSET, AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_BLE_BROADCAST -> "Bluetooth audio"
+        AudioDeviceInfo.TYPE_HEARING_AID -> "Hearing aid"
+        AudioDeviceInfo.TYPE_HDMI, AudioDeviceInfo.TYPE_HDMI_ARC, AudioDeviceInfo.TYPE_HDMI_EARC -> "HDMI"
+        else -> "Android output type $type"
+    }
+
     private fun shizukuSetup(): Setup {
         if (Shizuku.pingBinder()) return runCatching {
             if (Shizuku.getUid() != 2000) Setup.UNSUPPORTED
@@ -697,12 +760,12 @@ class PlaybackActivity : Activity() {
 
     private fun refreshFooter(state: PlaybackService.Companion.Status, ready: Boolean) {
         val reviewing = screen == Screen.REVIEW
-        footer.visible(!keyboardVisible && (reviewing || state.busy || state.running ||
-            ready && screen == Screen.HOME))
+        val homeScreen = screen == Screen.HOME
+        footer.visible(!keyboardVisible && (reviewing || state.busy || state.running || homeScreen))
         reviewActions.visible(reviewing)
-        playbackStatus.visible(!reviewing || state.busy || state.running)
+        playbackStatus.visible(ready && homeScreen || state.busy || state.running)
         playbackStatus.update(state.message)
-        playback.visible(ready && !state.busy && screen == Screen.HOME &&
+        playback.visible(ready && !state.busy && homeScreen &&
             (!state.running || state.activePresetId != selected?.id))
         playback.isEnabled = selected != null && ready && !state.busy && !reviewing
         playback.update(when {
@@ -711,6 +774,7 @@ class PlaybackActivity : Activity() {
             else -> "Start phone EQ"
         })
         stop.visible(state.running || state.busy)
+        reportBug.visible(homeScreen)
     }
 
     private fun describeFilters(preset: EqPreset): String = buildString {
