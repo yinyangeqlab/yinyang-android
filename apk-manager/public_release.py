@@ -21,6 +21,8 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 ET.register_namespace("android", ANDROID[1:-1])
 COMPANION = "com.yinyangeq.android.companion"
 MANAGER = "com.yinyangeq.android.manager"
+PHONE_EQ = "com.yinyangeq.android.playback"
+PHONE_EQ_ASSET = "YinYang-Phone-EQ.apk"
 COMPANION_TITLE = "YYEQ5K"
 MANAGER_TITLE = "YingYangEQ App Manager"
 COMPANION_DOWNLOAD_NAME = "YinYangEQ Q5K Companion App.apk"
@@ -64,6 +66,7 @@ def manifest(source, app_id, destination):
         queries = root.find("queries")
         queries.clear()
         ET.SubElement(queries, "package", {ANDROID + "name": COMPANION})
+        ET.SubElement(queries, "package", {ANDROID + "name": PHONE_EQ})
         root.remove(next(node for node in root.findall("uses-permission")
                          if node.get(ANDROID + "name") == "android.permission.REQUEST_INSTALL_PACKAGES"))
         app.remove(app.find("provider"))
@@ -91,9 +94,11 @@ def build_apk(app, key, password, pin, output):
             pins = [dict(package=package, label=label, asset=asset, signer=pin, notificationLabel=short_label)
                     for package, label, asset, _, _, short_label in APPS]
             next(app for app in pins if app["package"] == COMPANION)["downloadName"] = COMPANION_DOWNLOAD_NAME
+            pins.append(dict(package=PHONE_EQ, label="YinYang Phone EQ", asset=PHONE_EQ_ASSET,
+                             signer=pin, notificationLabel="Phone EQ", downloadName=PHONE_EQ_ASSET, minSdk=33))
             (work / "assets/release-feed.json").write_text(json.dumps(dict(public=True, endpoint=ENDPOINT, apps=pins)))
         if app_id == MANAGER:
-            code, version = "25", "1.6.3"
+            code, version = "27", "1.6.5"
         else:
             versions = re.search(r"--version-code (\d+) --version-name ([\d.]+)", (source / "build.sh").read_text())
             code, version = versions.groups()
@@ -176,14 +181,33 @@ def build_apk(app, key, password, pin, output):
                 sha256=delta.digest(output / asset))
 
 
+def add_phone_eq(apk, pin, output):
+    sdk = Path(os.environ.get("ANDROID_SDK_ROOT", "/opt/android-sdk"))
+    tools = sdk / "build-tools/36.0.0"
+    dest = output / PHONE_EQ_ASSET
+    shutil.copyfile(apk, dest)
+    certificates = subprocess.check_output([tools / "apksigner", "verify", "--print-certs", dest], text=True)
+    if re.findall(r"Signer #\d+ certificate SHA-256 digest: ([a-f0-9]+)", certificates) != [pin]:
+        raise ValueError("Phone EQ must use the Lab release signature")
+    info = subprocess.check_output([tools / "aapt2", "dump", "badging", dest], text=True)
+    match = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", info, re.MULTILINE)
+    if not match or match[1] != PHONE_EQ or "minSdkVersion:'33'" not in info or "application-debuggable" in info:
+        raise ValueError("Unexpected Phone EQ release manifest")
+    return dict(package=PHONE_EQ, code=int(match[2]), version=match[3],
+                bytes=dest.stat().st_size, sha256=delta.digest(dest))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("tag", help="Immutable release or local review tag")
     parser.add_argument("--manager-only", action="store_true", help="Build one locally reviewed Manager without a publication catalog")
+    parser.add_argument("--phone-eq", type=Path, help="Include a signed Phone EQ APK in the optional app catalog")
     parser.add_argument("--previous", type=Path, help="Directory containing the previous published release assets")
     args = parser.parse_args()
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,79}", args.tag):
         parser.error("Invalid release tag")
+    if args.phone_eq and args.manager_only:
+        parser.error("Phone EQ requires a publication catalog")
     os.umask(0o077)
     (ROOT / "state").mkdir(exist_ok=True)
     releases = ROOT / "build/public"
@@ -205,6 +229,8 @@ def main():
             rows.append(row)
         if not args.manager_only:
             catalog = dict(schema=1, tag=args.tag, apps=rows)
+            if args.phone_eq:
+                catalog["additionalApps"] = [add_phone_eq(args.phone_eq.resolve(), pin, staging)]
             (staging / "catalog.json").write_text(json.dumps(catalog, indent=2) + "\n")
         staging.rename(output)
     print("Verified release assets in", output)

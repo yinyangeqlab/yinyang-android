@@ -11,7 +11,7 @@ final class UpdateChannel {
     static final String OFFLINE = "Cannot reach GitHub. Showing the last checked release when available.";
     private static final String ORIGIN = "https://github.com/yinyangeqlab/yinyang-android/releases";
     static final boolean PRIVATE = false;
-    static final String CAPTION = "Companion updates";
+    static final String CAPTION = "Android app updates";
     private String releasePath;
 
     UpdateChannel(JSONObject config) throws Exception {

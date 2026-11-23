@@ -27,6 +27,7 @@ final class Updates {
 
     static class App {
         final String id, label, notificationLabel, downloadName, signer;
+        final int minSdk;
         String version, hash, installed, problem;
         final Map<String, JSONObject> patches = new LinkedHashMap<>();
         String asset;
@@ -40,6 +41,7 @@ final class Updates {
             notificationLabel = pin.optString("notificationLabel", label);
             downloadName = pin.optString("downloadName");
             signer = pin.getString("signer");
+            minSdk = pin.optInt("minSdk", 0);
             asset = pin.optString("asset");
         }
         boolean wanted() {
@@ -105,6 +107,11 @@ final class Updates {
         }
         for (App a : apps.values()) {
             try {
+                if (android.os.Build.VERSION.SDK_INT < a.minSdk) {
+                    a.blocked = true;
+                    a.problem = a.minSdk == 33 ? "Requires Android 13 or newer." : "Requires a newer version of Android.";
+                    continue;
+                }
                 inspectInstalled(a);
                 if (UpdateChannel.PRIVATE && a.wanted()) {
                     File path = file(a);
@@ -131,7 +138,7 @@ final class Updates {
         for (int i = 0; i < list.length(); i++) {
             JSONObject entry = list.getJSONObject(i);
             App app = apps.get(entry.getString("package"));
-            // Older catalogs also list the separate Plus preview. Only installed pins can be updated.
+            // Older Manager versions skip optional apps that they do not have a release pin for.
             if(optional && app==null)continue;
             if (app == null || app.hash != null)
                 throw new IOException("Unexpected catalog entry.");
