@@ -98,7 +98,7 @@ def build_apk(app, key, password, pin, output):
                              signer=pin, notificationLabel="System Wide PEQ", downloadName=PHONE_EQ_ASSET, minSdk=33))
             (work / "assets/release-feed.json").write_text(json.dumps(dict(public=True, endpoint=ENDPOINT, apps=pins)))
         if app_id == MANAGER:
-            code, version = "28", "1.6.6"
+            code, version = "29", "1.6.7"
         else:
             versions = re.search(r"--version-code (\d+) --version-name ([\d.]+)", (source / "build.sh").read_text())
             code, version = versions.groups()
