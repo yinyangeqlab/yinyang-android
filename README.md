@@ -11,7 +11,7 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 
 ## Install or update
 
-In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.16.6 · Build 67). The launcher icon is labeled **YYEQ5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates.
+In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.16.7 · Build 68). The launcher icon is labeled **YYEQ5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates.
 
 Choose **System Wide PEQ** in App Manager or download the YinYang Phone EQ APK directly for system-wide equalization of Android media and games. Start Shizuku with wireless debugging, then allow Phone EQ in Shizuku. In the Companion fitter, pick Main EQ, Channel Match, or Paired EQ and choose **Open in Phone EQ**. [Setup and Quve credits](android-playback/)
 

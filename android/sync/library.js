@@ -74,13 +74,13 @@ function draw(){
    const section=el('section');section.className='sync-link';
    if(linkCode){
      el('h2','Compare your code',section);
-     el('p','Open the request in your signed-in browser. Confirm there when both codes match.',section);
+     el('p','Open the request in your browser. Approve with your existing Sync account, or choose Use Sync ID with your passkey or recovery code.',section);
      const code=el('strong',linkCode.slice(0,4)+' '+linkCode.slice(4),section);code.className='sync-code';
      el('small','Expires at '+new Date(linkIssued+600000).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}),section);
-     btn('Open in-app browser',()=>Phone.approvalInApp(),section).className='sync-primary';
+     btn('Open approval in browser',()=>Phone.openApproval(),section).className='sync-primary';
+     btn('Share approval link',()=>Phone.shareApproval(),section);
      const more=el('details',null,section);el('summary','Other linking options',more);
-     btn('Open in another browser',()=>Phone.openApproval(),more);
-     btn('Share approval link',()=>Phone.shareApproval(),more);
+     btn('Open in-app browser',()=>Phone.approvalInApp(),more);
      btn('Check approval',()=>Phone.refresh(),more);
      btn('Get new code',()=>Phone.link(),more);
      btn('Wrong code or cancel',()=>Phone.cancelRequest(),section);
@@ -89,7 +89,7 @@ function draw(){
        expired:['Code expired','Get a new code to start again.']};
      const copy=messages[ended]||['Link your library','Read your saved audio settings and choose presets or measurements to send to My Collection. Your link lasts until you disconnect or revoke it.'];
      el('h2',copy[0],section);el('p',copy[1],section);
-     btn(ended?'Get new code':'Link browser account',()=>Phone.link(),section).className='sync-primary';
+     btn(ended?'Get new code':'Connect to an existing Sync account',()=>Phone.link(),section).className='sync-primary';
    }
    btn('Report issue',()=>Phone.reportIssue(),section).className='sync-text';
    return;

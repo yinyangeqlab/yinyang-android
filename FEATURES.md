@@ -20,7 +20,7 @@ Adjust hardware and Android media volumes separately. Check the available stream
 
 ## My Collection and updates
 
-Use Sync to approve a browser link with a matching code. An approved writable link can save compatible measurements, EQs and paired preset history. Use My Collection on the website to organize your data or delete a saved version. Ordinary live filter edits stay local to the companion. Disconnect the link from Sync when you finish using the phone.
+In Sync, connect to your existing browser account and open approval in your browser. Compare the displayed codes before approving. If your linked browsers are unavailable, choose **Use Sync ID** and verify with a passkey or recovery code you previously set up in the website’s **Sync & Devices**. An approved writable link can save compatible measurements, EQs and paired preset history. Use My Collection on the website to organize your data or delete a saved version. Ordinary live filter edits stay local to the companion. Disconnect the link from Sync when you finish using the phone.
 
 App Manager lists the unified Companion and its own updates. Firmware updates run in the official Qudelix app.
 
