@@ -23,11 +23,11 @@ COMPANION = "com.yinyangeq.android.companion"
 MANAGER = "com.yinyangeq.android.manager"
 PHONE_EQ = "com.yinyangeq.android.playback"
 PHONE_EQ_ASSET = "YinYang-Phone-EQ.apk"
-COMPANION_TITLE = "YYEQ5K"
+COMPANION_TITLE = "YinYangEQ Companion App for Qudelix 5K and 5K Plus"
 MANAGER_TITLE = "YingYangEQ App Manager"
 COMPANION_DOWNLOAD_NAME = "YinYangEQ Q5K Companion App.apk"
 APPS = (
-    (COMPANION, COMPANION_TITLE, "YinYang-Companion.apk", ROOT.parent / "android", 26, COMPANION_TITLE),
+    (COMPANION, COMPANION_TITLE, "YinYang-Companion.apk", ROOT.parent / "android", 26, "YYEQ5K"),
     (MANAGER, MANAGER_TITLE, "YinYang-APK-Manager.apk", ROOT, 28, "App Manager"),
 )
 
@@ -94,11 +94,11 @@ def build_apk(app, key, password, pin, output):
             pins = [dict(package=package, label=label, asset=asset, signer=pin, notificationLabel=short_label)
                     for package, label, asset, _, _, short_label in APPS]
             next(app for app in pins if app["package"] == COMPANION)["downloadName"] = COMPANION_DOWNLOAD_NAME
-            pins.append(dict(package=PHONE_EQ, label="YinYang Phone EQ", asset=PHONE_EQ_ASSET,
-                             signer=pin, notificationLabel="Phone EQ", downloadName=PHONE_EQ_ASSET, minSdk=33))
+            pins.append(dict(package=PHONE_EQ, label="System Wide PEQ", asset=PHONE_EQ_ASSET,
+                             signer=pin, notificationLabel="System Wide PEQ", downloadName=PHONE_EQ_ASSET, minSdk=33))
             (work / "assets/release-feed.json").write_text(json.dumps(dict(public=True, endpoint=ENDPOINT, apps=pins)))
         if app_id == MANAGER:
-            code, version = "27", "1.6.5"
+            code, version = "28", "1.6.6"
         else:
             versions = re.search(r"--version-code (\d+) --version-name ([\d.]+)", (source / "build.sh").read_text())
             code, version = versions.groups()

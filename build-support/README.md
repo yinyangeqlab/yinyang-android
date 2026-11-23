@@ -1,6 +1,6 @@
 # Rebuild the Android release
 
-The signed release contains YYEQ5K 0.16.6 (build 67), YinYang Phone EQ 0.3.0 (build 5), and YingYangEQ App Manager 1.6.5 (build 27). Use Android SDK Platform 36, Build Tools 36.0.0, JDK 21, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
+The signed release contains YYEQ5K 0.16.6 (build 67), System Wide PEQ 0.3.0 (build 5, YinYang Phone EQ), and YingYangEQ App Manager 1.6.6 (build 28). Use Android SDK Platform 36, Build Tools 36.0.0, JDK 21, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
 
 From this repository's root, stage the pinned offline EQ engine and install esbuild.
 
