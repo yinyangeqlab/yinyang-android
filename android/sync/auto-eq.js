@@ -540,28 +540,37 @@ function renderComparison(saved,parent){
    chart(box,[{name:'Predicted Main EQ',points:corrected},{name:'Target',points:saved.targetPoints}]);
    if(opt.labels.length)el('small',opt.labels.join(' · '),box);
    if(opt.fallback)el('small',opt.fallback,box);
-   const exports=el('div',null,box);exports.className='fit-export-actions';
    const main=mainText(opt,c),filename=saved.name+' - '+opt.label;
-   btn('Copy Main PEQ',()=>Phone.copyPeq(main),exports);
-   btn('Save Main PEQ as TXT',()=>saveFiles(filename,[{name:filename+' - Main PEQ',text:main}]),exports);
-   if(Phone.hasPhoneEq()){
-     const phonePreset=pairedText(main,c?matchText(result.matches[c.mi]):'');
-     btn('Open in Phone EQ',()=>Phone.openPhoneEq(filename.slice(0,160),phonePreset),exports);
-   }
+   const match=c?result.matches[c.mi]:null;
+   const matchPreset=matchText(match);
    if(c){
-     const u=result.user[c.ui],match=result.matches[c.mi],title=saved.name+' · '+opt.label;
+     const u=result.user[c.ui],title=saved.name+' · '+opt.label;
      el('p',match.label+' · '+[u.filters.length,...match.channels.map(ear=>ear.filters.length)].join(' / ')+' filters (Main / Left / Right)',box);
      draftButton('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels),box).className='fit-primary';
-     if(hasMatch(match)){
-       const text=matchText(match);
-       btn('Copy Channel Match',()=>Phone.copyPeq(text),exports);
-       btn('Save Channel Match as TXT',()=>saveFiles(filename,[{name:filename+' - Channel Match',text}]),exports);
-       btn('Save paired preset as TXT',()=>saveFiles(filename,[{name:filename+' - Paired EQ',text:pairedText(main,text)}]),exports);
+     if(matchPreset){
        draftButton('Review Channel Match only',()=>use(title,null,match.channels),box);
      }
      if(linked && library.writable)btn('Save fit to My Collection',()=>saveEntry({action:'eq',name:title.slice(0,100),filters:u.filters,preamp:u.preamp,
        ...(match.label==='No channel correction'?{}:{match:{channelMatchMode:'custom',channelMatchPreset:{channels:match.channels.map(c=>({filters:c.filters,preampDb:c.preamp}))}}})}),box);
    }else if(!standalone)el('p','This result exceeds the device’s filter or preamp limits.',box);
+   const exports=el('fieldset',null,box);exports.className='fit-export';
+   el('legend','Use or save this preset',exports);
+   const variants=matchPreset?[
+     {label:'Paired EQ',text:pairedText(main,matchPreset)},
+     {label:'Main EQ',text:main},
+     {label:'Channel Match',text:matchPreset},
+   ]:[{label:'Main EQ',text:main}];
+   const label=el('label',null,exports);
+   el('span','Preset type',label);
+   const type=el('select',null,label);
+   for(const [index,preset] of variants.entries())el('option',preset.label,type).value=index;
+   type.disabled=variants.length===1;
+   const current=()=>variants[type.selectedIndex];
+   const name=()=>filename.slice(0,72)+' - '+current().label;
+   btn(Phone.hasPhoneEq()?'Open in Phone EQ':'Get Phone EQ',()=>Phone.openPhoneEq(name(),current().text),exports).className='fit-export-open';
+   const fileActions=el('div',null,exports);fileActions.className='fit-export-actions';
+   btn('Save TXT',()=>saveFiles(filename,[{name:name(),text:current().text}]),fileActions);
+   btn('Copy filters',()=>Phone.copyPeq(current().text),fileActions);
    const filters=el('details',null,box);el('summary','Calculated Main EQ filters',filters);const table=el('table',null,filters);table.className='filter-values';
    const headings=el('tr',null,el('thead',null,table));
    for(const title of ['Band','Type','Hz','dB','Q'])el('th',title,headings);

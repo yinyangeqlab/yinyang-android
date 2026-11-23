@@ -1,6 +1,6 @@
 # Rebuild the Android release
 
-The signed release contains YYEQ5K 0.16.5 (build 66) and YingYangEQ App Manager 1.6.3 (build 25). Use Android SDK Platform 36, Build Tools 36.0.0, a JDK with `javac --release 8`, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
+The signed release contains YYEQ5K 0.16.6 (build 67), YinYang Phone EQ 0.3.0 (build 5), and YingYangEQ App Manager 1.6.3 (build 25). Use Android SDK Platform 36, Build Tools 36.0.0, JDK 21, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
 
 From this repository's root, stage the pinned offline EQ engine and install esbuild.
 
@@ -18,3 +18,11 @@ python3 apk-manager/public_release.py android-local-rebuild
 ```
 
 The APKs and their catalog are written under `apk-manager/build/public/android-local-rebuild/`. Review the package name, version, build number and archive entries with `aapt2 dump badging` and a ZIP reader. Official APK and catalog checksums are recorded on the release page.
+
+Build Phone EQ with [Gradle 9.1.0](https://gradle.org/releases/) and its declared Android Gradle Plugin and Shizuku dependencies.
+
+```sh
+gradle -p android-playback :app:testDebugUnitTest :app:assembleRelease
+```
+
+The unsigned Phone EQ APK is written to `android-playback/app/build/outputs/apk/release/app-release-unsigned.apk`. [Phone EQ source and setup](../android-playback/)

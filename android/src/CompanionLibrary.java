@@ -16,6 +16,7 @@ import static com.yinyangeq.qudelixprobe.LabStyle.*;
 /** App-packaged library and fit engine. Only native HTTPS requests may contact the scoped collection API. */
 abstract class CompanionLibrary extends AppearanceActivity {
     private static final String SITE="https://yinyangeq.com";
+    private static final int PHONE_EQ_HANDOFF=7306;
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private WebView page;private LibraryGrant grant;private boolean busy,ready,away;
     private boolean autoEq,returnToLibrary;
@@ -422,8 +423,11 @@ abstract class CompanionLibrary extends AppearanceActivity {
                 if(isDestroyed() || isFinishing())return;
                 Intent handoff=phoneEqIntent()
                         .putExtra(Intent.EXTRA_SUBJECT,name).putExtra(Intent.EXTRA_TEXT,preset);
-                try{startActivity(handoff);}
-                catch(android.content.ActivityNotFoundException missing){toast("Install YinYang Phone EQ and set up Shizuku to use this fit for phone playback.");}
+                try{startActivityForResult(handoff,PHONE_EQ_HANDOFF);}
+                catch(android.content.ActivityNotFoundException missing){
+                    try{startActivity(new Intent(Intent.ACTION_VIEW,Uri.parse(SITE+"/android#phone-eq")));}
+                    catch(android.content.ActivityNotFoundException noBrowser){toast("Get YinYang Phone EQ at yinyangeq.com/android.");}
+                }
             });
         }
         @JavascriptInterface public void saveFitFiles(String payload){
