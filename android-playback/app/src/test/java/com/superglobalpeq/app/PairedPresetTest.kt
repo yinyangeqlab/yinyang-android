@@ -4,6 +4,7 @@ import com.superglobalpeq.app.dsp.EqualizerApoParser
 import com.superglobalpeq.app.dsp.BiquadCoefficients
 import com.superglobalpeq.app.dsp.StereoPeqProcessor
 import com.superglobalpeq.app.model.ActiveDspConfig
+import com.superglobalpeq.app.model.EqPresetBaseline
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -84,5 +85,65 @@ class PairedPresetTest {
         }
         assertEquals(2010.0, samples[958].toDouble(), 12.0)
         assertEquals(4010.0, samples[959].toDouble(), 12.0)
+    }
+
+    @Test fun exportRoundTripsFilterPrecisionChannelSectionsAndSwap() {
+        val source = PresetInput.parse(
+            """
+            # Quve-ChannelSwap: true
+            # Quve-SwapPosition: AFTER_INDEPENDENT_EQ
+            Preamp: -1.234 dB
+            Filter 1: ON PK Fc 1000.125 Hz Gain 1.2345 dB Q 0.009765625
+            Channel: L
+            Filter 1: OFF PK Fc 99.5 Hz Gain -4.1234 dB Q 0.7071067811865476
+            Channel: R
+            Preamp: -2.375 dB
+            """.trimIndent(), "Precise paired preset"
+        ).preset
+        val imported = PresetInput.parse(EqualizerApoParser.export(source), "Reimported")
+        assertTrue(imported.warnings.isEmpty())
+        val baseline = EqPresetBaseline.fromPreset(source)
+        assertEquals(baseline, EqPresetBaseline.fromPreset(imported.preset).copy(
+            commonBands = imported.preset.commonBands.mapIndexed { index, band ->
+                band.copy(id = baseline.commonBands[index].id)
+            },
+            leftBands = imported.preset.leftBands.mapIndexed { index, band ->
+                band.copy(id = baseline.leftBands[index].id)
+            },
+        ))
+    }
+
+    @Test fun pairedPlaybackCanApplyEitherSectionOrBothWithoutChangingThePreset() {
+        val source = PresetInput.parse(
+            """
+            Preamp: -4 dB
+            Filter 1: ON PK Fc 1000 Hz Gain 1 dB Q 1
+            Channel: L
+            Preamp: -2 dB
+            Filter 1: ON PK Fc 100 Hz Gain 1 dB Q 1
+            Channel: R
+            Preamp: -1 dB
+            """.trimIndent(), "Paired"
+        ).preset
+        val main = PresetPlaybackMode.MAIN.config(source).preset
+        val channel = PresetPlaybackMode.CHANNEL.config(source).preset
+        assertEquals(PresetKind.MAIN, PresetKind.of(main))
+        assertEquals(PresetKind.CHANNEL, PresetKind.of(channel))
+        assertEquals(source.commonBands, main.commonBands)
+        assertEquals(source.commonPreampDb, main.commonPreampDb, 0.0)
+        assertEquals(source.leftBands, channel.leftBands)
+        assertEquals(source.leftPreampDb, channel.leftPreampDb, 0.0)
+        assertEquals(source.rightPreampDb, channel.rightPreampDb, 0.0)
+        assertEquals(source, PresetPlaybackMode.BOTH.config(source).preset)
+        assertEquals(PresetPlaybackMode.MAIN, PresetPlaybackMode.forPreset(main, PresetPlaybackMode.BOTH))
+        assertEquals(PresetPlaybackMode.CHANNEL, PresetPlaybackMode.forPreset(channel, PresetPlaybackMode.MAIN))
+        assertEquals(PresetKind.CHANNEL, PresetKind.of(
+            PresetInput.parse(EqualizerApoParser.export(channel), "Channel Match only").preset
+        ))
+    }
+
+    @Test fun exportFilenameKeepsOneExtensionAndRemovesPathSeparators() {
+        assertEquals("Fit-Left.txt", PresetInput.exportFilename("Fit/Left.TXT"))
+        assertEquals("Phone EQ preset.txt", PresetInput.exportFilename("..."))
     }
 }

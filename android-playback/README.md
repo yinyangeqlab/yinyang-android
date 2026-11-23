@@ -10,7 +10,13 @@ Phone EQ needs Android 13 or newer. Playback coverage depends on the phone's aud
 
 ## Report a playback issue
 
-After reproducing the issue, open **Home → Report a bug → Copy details** and share the report with support. It includes your phone model and Android build, Shizuku and notification access, available audio output types, and Phone EQ’s latest startup trace. The report stays on your phone until you share it.
+After reproducing the issue, tap **Report a bug** in the upper right, then **Copy details**. Share the report with support. It includes your phone model and Android build, Shizuku and notification access, available audio output types, and Phone EQ’s latest startup trace. The report stays on your phone until you share it.
+
+## Play and export preset sections
+
+Import Main EQ filters without a channel header, or use `Channel: L` and `Channel: R` for a Channel Match preset. A TXT containing both kinds imports as Paired EQ. On a paired preset, choose **Main EQ**, **Channel Match**, or **Both**, then tap **Start phone EQ** or **Apply playback mode**.
+
+On a selected preset, **Copy filters** copies Equalizer APO text and **Export TXT** saves that text to a location you choose. Both include the entire preset, including its main, left, and right sections.
 
 ## Build and license
 

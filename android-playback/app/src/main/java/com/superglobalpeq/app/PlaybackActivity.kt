@@ -46,7 +46,7 @@ import android.widget.TextView
 import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
-import com.superglobalpeq.app.model.ActiveDspConfig
+import com.superglobalpeq.app.dsp.EqualizerApoParser
 import com.superglobalpeq.app.model.EqPreset
 import rikka.shizuku.Shizuku
 import java.io.IOException
@@ -86,6 +86,9 @@ class PlaybackActivity : Activity() {
     private lateinit var filterCounts: List<TextView>
     private lateinit var filterDetails: TextView
     private lateinit var toggleFilters: Button
+    private lateinit var playbackModes: LinearLayout
+    private lateinit var modeButtons: Map<PresetPlaybackMode, Button>
+    private lateinit var exportActions: LinearLayout
     private lateinit var reviewForm: LinearLayout
     private lateinit var reviewActions: LinearLayout
     private lateinit var importNote: TextView
@@ -93,7 +96,6 @@ class PlaybackActivity : Activity() {
     private lateinit var playbackStatus: TextView
     private lateinit var playback: Button
     private lateinit var stop: Button
-    private lateinit var reportBug: Button
     private var bugDialog: AlertDialog? = null
     private var themeIndex = 0
     private var setup: Setup? = null
@@ -111,6 +113,8 @@ class PlaybackActivity : Activity() {
     private var showFilters = false
     private var renderedDetails: EqPreset? = null
     private var importMessage = ""
+    private var pendingExport: String? = null
+    private var pairedMode = PresetPlaybackMode.BOTH
     private var request = 0
     private val back = OnBackInvokedCallback { backToParent() }
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, _ ->
@@ -140,6 +144,11 @@ class PlaybackActivity : Activity() {
         skippedLines = savedInstanceState?.getInt("skipped") ?: 0
         showFilters = savedInstanceState?.getBoolean("showFilters") ?: false
         importMessage = savedInstanceState?.getString("importMessage").orEmpty()
+        pendingExport = savedInstanceState?.getString("pendingExport")
+        val modeName = savedInstanceState?.getString("pairedMode")
+        pairedMode = PresetPlaybackMode.entries.firstOrNull { it.name == modeName }
+            ?: PlaybackService.status.takeIf { it.activePresetId == selected?.id }?.activeMode
+            ?: PresetPlaybackMode.BOTH
         createContent()
         reviewName.setText(savedInstanceState?.getString("reviewName") ?: incoming?.name.orEmpty())
         query.setText(savedInstanceState?.getString("query").orEmpty())
@@ -166,6 +175,8 @@ class PlaybackActivity : Activity() {
         out.putString("query", query.text.toString())
         out.putString("reviewName", reviewName.text.toString())
         out.putString("importMessage", importMessage)
+        out.putString("pendingExport", pendingExport)
+        out.putString("pairedMode", pairedMode.name)
         out.putInt("scroll", home.scrollY)
         out.putInt("listPosition", presetList.firstVisiblePosition)
         out.putInt("listOffset", presetList.getChildAt(0)?.top ?: 0)
@@ -196,6 +207,7 @@ class PlaybackActivity : Activity() {
         val latestSelection = library.selected()
         val latestLibrary = library.load()
         if (latestSelection != selected || latestLibrary != saved) {
+            if (latestSelection?.id != selected?.id) pairedMode = PresetPlaybackMode.BOTH
             selected = latestSelection
             saved = latestLibrary
             updateLibrary()
@@ -212,7 +224,7 @@ class PlaybackActivity : Activity() {
         bugDialog?.dismiss()
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
-        reader.shutdownNow()
+        reader.shutdown()
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }
@@ -236,15 +248,22 @@ class PlaybackActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPaddingRelative(dp(16), dp(4), dp(16), dp(4))
         }
-        header.addView(ImageView(this).apply {
-            setImageResource(R.drawable.brand_header)
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }, dp(52), dp(36))
+        val width = resources.configuration.screenWidthDp
+        if (width >= 400) {
+            header.addView(ImageView(this).apply {
+                setImageResource(R.drawable.brand_header)
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }, dp(52), dp(36))
+        }
         header.addView(label("YinYang Phone EQ", 21, appearance.ink, true).apply {
             isAccessibilityHeading = true
-            setPaddingRelative(dp(10), 0, dp(8), 0)
+            setPaddingRelative(dp(if (width >= 400) 10 else 0), 0, dp(8), 0)
         }, LinearLayout.LayoutParams(0, -2, 1f))
-        header.addView(button("Theme", action = ::chooseTheme), -2, -2)
+        header.addView(button("Report a bug", action = ::showBugReport).apply {
+            maxWidth = dp(170)
+            setPaddingRelative(dp(10), dp(8), dp(10), dp(8))
+            setButtonIcon(R.drawable.ic_bug)
+        }, -2, -2)
         root.addView(header, -1, -2)
         root.addView(divider())
 
@@ -258,6 +277,11 @@ class PlaybackActivity : Activity() {
             addView(homeButton, LinearLayout.LayoutParams(0, -1, 1f))
             addView(libraryButton, LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(6) })
             addView(companionButton, LinearLayout.LayoutParams(0, -1, 1.55f).apply { marginStart = dp(6) })
+            addView(button(if (width >= 480) "Theme" else "", action = ::chooseTheme).apply {
+                contentDescription = "Theme"
+                tooltipText = "Theme"
+                setButtonIcon(R.drawable.ic_theme)
+            }, LinearLayout.LayoutParams(if (width >= 480) -2 else dp(48), -1).apply { marginStart = dp(8) })
         }
         navigation.addView(navItems, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL))
         limitWidth(navigation, navItems)
@@ -270,8 +294,8 @@ class PlaybackActivity : Activity() {
         val content = column().apply { setPaddingRelative(dp(16), dp(18), dp(16), dp(22)) }
         home.addView(content, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL))
         limitWidth(home, content)
-        content.addView(buildSetup(), -1, -2)
         content.addView(buildPresets(), -1, -2)
+        content.addView(buildSetup(), spaced(14))
         importNote = label("", 14, appearance.warning).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
@@ -309,8 +333,6 @@ class PlaybackActivity : Activity() {
         playback = button("Start phone EQ", prominent = true, action = ::startPlayback)
         footer.addView(stop, spaced(8))
         footer.addView(playback, spaced(8))
-        reportBug = button("Report a bug", action = ::showBugReport)
-        footer.addView(reportBug, spaced(8, -2))
         root.addView(bottom, -1, -2)
         setContentView(root)
         window.setDecorFitsSystemWindows(false)
@@ -371,6 +393,22 @@ class PlaybackActivity : Activity() {
                 count
             }
             addView(filters, spaced(15))
+            playbackModes = column().apply {
+                addView(label("Playback mode", 14, appearance.muted))
+                val modeRow = LinearLayout(this@PlaybackActivity).apply { isBaselineAligned = false }
+                modeButtons = PresetPlaybackMode.entries.associateWith { mode ->
+                    navButton(mode.label) {
+                        pairedMode = mode
+                        refresh()
+                    }.also { control ->
+                        modeRow.addView(control, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                            if (mode != PresetPlaybackMode.MAIN) marginStart = dp(6)
+                        })
+                    }
+                }
+                addView(modeRow, spaced(6))
+            }
+            addView(playbackModes, spaced(16))
             toggleFilters = button("Show filters") {
                 showFilters = !showFilters
                 refresh()
@@ -378,6 +416,15 @@ class PlaybackActivity : Activity() {
             addView(toggleFilters, spaced(12))
             filterDetails = label("", 14, appearance.ink)
             addView(filterDetails, spaced(10))
+            exportActions = LinearLayout(this@PlaybackActivity).apply {
+                isBaselineAligned = false
+                addView(navButton("Copy filters") {
+                    selected?.let { copyToClipboard("Phone EQ filters", EqualizerApoParser.export(it)) }
+                }, LinearLayout.LayoutParams(0, -1, 1f))
+                addView(navButton("Export TXT", action = ::exportPreset),
+                    LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(8) })
+            }
+            addView(exportActions, spaced(8))
         }, spaced(12))
         openTxt = button("Import preset TXT", action = ::openTextFile)
         addView(openTxt, spaced(12))
@@ -412,6 +459,7 @@ class PlaybackActivity : Activity() {
                 setOnItemClickListener { _, _, position, _ ->
                     val preset = rows.getItem(position)
                     library.select(preset)
+                    if (selected?.id != preset.id) pairedMode = PresetPlaybackMode.BOTH
                     selected = preset
                     showFilters = false
                     updateLibrary()
@@ -590,6 +638,12 @@ class PlaybackActivity : Activity() {
     private fun navButton(value: String, prominent: Boolean = false, action: () -> Unit) =
         button(value, prominent, action).apply { setPaddingRelative(dp(6), dp(8), dp(6), dp(8)) }
 
+    private fun Button.setButtonIcon(resource: Int) {
+        val icon = getDrawable(resource)?.mutate()?.apply { setTint(appearance.ink) }
+        compoundDrawablePadding = dp(6)
+        setCompoundDrawablesRelativeWithIntrinsicBounds(icon, null, null, null)
+    }
+
     private fun box(fill: Int, stroke: Int, radius: Int, width: Int = 1) = GradientDrawable().apply {
         setColor(fill)
         cornerRadius = dp(radius).toFloat()
@@ -645,9 +699,12 @@ class PlaybackActivity : Activity() {
             .setMessage("Copy these details and share them with the person helping you.\n\n$report")
             .setNegativeButton("Close", null)
             .setPositiveButton("Copy details") { _, _ ->
-                getSystemService(ClipboardManager::class.java)
-                    .setPrimaryClip(ClipData.newPlainText("Phone EQ diagnostics", report))
+                copyToClipboard("Phone EQ diagnostics", report)
             }.show().also { dialog -> dialog.setOnDismissListener { bugDialog = null } }
+    }
+
+    private fun copyToClipboard(label: String, text: String) {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
     private fun outputName(type: Int): String = when (type) {
@@ -719,7 +776,7 @@ class PlaybackActivity : Activity() {
         libraryButton.isSelected = browsing
         companionButton.visible(companionReturn)
         setupPanel.visible(!ready && !reviewing && !browsing)
-        presetPanel.visible(reviewing || ready && !browsing)
+        presetPanel.visible(!browsing && (reviewing || ready || preset != null))
         openTxt.visible(!reviewing)
         if (backRegistered != (screen != Screen.HOME)) {
             backRegistered = screen != Screen.HOME
@@ -742,6 +799,9 @@ class PlaybackActivity : Activity() {
             else -> "${PresetKind.of(preset).label} • Selected preset"
         })
         filters.visible(preset != null)
+        playbackModes.visible(!reviewing && preset != null && PresetKind.of(preset) == PresetKind.PAIRED)
+        modeButtons.forEach { (mode, control) -> control.isSelected = mode == pairedMode }
+        exportActions.visible(!reviewing && preset != null)
         toggleFilters.visible(preset != null)
         toggleFilters.update(if (showFilters) "Hide filters" else "Show filters")
         filterDetails.visible(showFilters && preset != null)
@@ -761,20 +821,22 @@ class PlaybackActivity : Activity() {
     private fun refreshFooter(state: PlaybackService.Companion.Status, ready: Boolean) {
         val reviewing = screen == Screen.REVIEW
         val homeScreen = screen == Screen.HOME
-        footer.visible(!keyboardVisible && (reviewing || state.busy || state.running || homeScreen))
+        footer.visible(!keyboardVisible && (reviewing || state.busy || state.running || ready && homeScreen))
         reviewActions.visible(reviewing)
         playbackStatus.visible(ready && homeScreen || state.busy || state.running)
         playbackStatus.update(state.message)
+        val mode = selected?.let { PresetPlaybackMode.forPreset(it, pairedMode) }
+        val samePreset = state.activePresetId == selected?.id
         playback.visible(ready && !state.busy && homeScreen &&
-            (!state.running || state.activePresetId != selected?.id))
+            (!state.running || !samePreset || state.activeMode != mode))
         playback.isEnabled = selected != null && ready && !state.busy && !reviewing
         playback.update(when {
             !PlaybackService.notificationsEnabled(this) -> "Enable playback notifications"
+            state.running && samePreset -> "Apply playback mode"
             state.running -> "Apply selected preset"
             else -> "Start phone EQ"
         })
         stop.visible(state.running || state.busy)
-        reportBug.visible(homeScreen)
     }
 
     private fun describeFilters(preset: EqPreset): String = buildString {
@@ -851,6 +913,7 @@ class PlaybackActivity : Activity() {
         val preset = incoming?.copy(name = PresetInput.title(reviewName.text.toString())) ?: return
         library.saveAndSelect(preset)
         selected = preset
+        pairedMode = PresetPlaybackMode.BOTH
         saved = library.load()
         updateLibrary()
         navigate(Screen.HOME)
@@ -861,6 +924,13 @@ class PlaybackActivity : Activity() {
     @Deprecated("Uses the Android system document picker.")
     override fun onActivityResult(request: Int, result: Int, data: Intent?) {
         super.onActivityResult(request, result, data)
+        if (request == SAVE_TXT) {
+            val text = pendingExport
+            pendingExport = null
+            val uri = data?.data
+            if (result == RESULT_OK && uri?.scheme == "content" && text != null) saveExport(uri, text)
+            return
+        }
         if (request != OPEN_TXT || result != RESULT_OK) return
         val uri = data?.data ?: return
         if (uri.scheme != "content") return
@@ -870,6 +940,35 @@ class PlaybackActivity : Activity() {
             val name = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
                 ?.use { if (it.moveToFirst()) it.getString(0) else null }
             PresetInput.parse(text, name?.removeSuffix(".txt") ?: "Imported preset")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun exportPreset() {
+        val preset = selected ?: return
+        pendingExport = EqualizerApoParser.export(preset)
+        val picker = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("text/plain").putExtra(Intent.EXTRA_TITLE, PresetInput.exportFilename(preset.name))
+        try {
+            startActivityForResult(picker, SAVE_TXT)
+        } catch (_: ActivityNotFoundException) {
+            pendingExport = null
+            Toast.makeText(this, "No app is available to save the preset TXT.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveExport(uri: Uri, text: String) {
+        reader.execute {
+            val saved = runCatching {
+                val stream = contentResolver.openOutputStream(uri, "wt")
+                    ?: throw IOException("Could not open the export destination.")
+                stream.bufferedWriter(Charsets.UTF_8).use { it.write(text) }
+            }.isSuccess
+            handler.post {
+                if (!isDestroyed) Toast.makeText(this,
+                    if (saved) "Preset TXT saved." else "Could not save the preset TXT. Choose another location.",
+                    Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -888,16 +987,18 @@ class PlaybackActivity : Activity() {
             }
             return
         }
-        val config = ActiveDspConfig(channelSwap = preset.channelSwap, swapPosition = preset.swapPosition, preset = preset)
+        val mode = PresetPlaybackMode.forPreset(preset, pairedMode)
+        val config = mode.config(preset)
         startForegroundService(Intent(this, PlaybackService::class.java).setAction(PlaybackService.START)
             .putExtra(PlaybackService.CONFIG, config.toJsonString()).putExtra(PlaybackService.NAME, preset.name)
-            .putExtra(PlaybackService.PRESET_ID, preset.id))
+            .putExtra(PlaybackService.PRESET_ID, preset.id).putExtra(PlaybackService.MODE, mode.name))
     }
 
     companion object {
         private const val OPEN_TXT = 1
         private const val SHIZUKU_REQUEST = 2
         private const val NOTIFICATION_REQUEST = 3
+        private const val SAVE_TXT = 4
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
         private val COMPANION_PACKAGES = setOf("com.yinyangeq.android.companion", "com.yinyangeq.companion.preview")
     }

@@ -5,6 +5,7 @@ import com.superglobalpeq.app.model.FilterType
 import com.superglobalpeq.app.model.PeqBand
 import com.superglobalpeq.app.model.PeqChannelTarget
 import com.superglobalpeq.app.model.SwapPosition
+import java.math.BigDecimal
 import java.util.Locale
 import kotlin.math.pow
 
@@ -210,52 +211,31 @@ object EqualizerApoParser {
     }
 
     fun export(preset: EqPreset): String {
-        val sb = StringBuilder()
-        if (preset.channelSwap || preset.swapPosition != SwapPosition.BEFORE_INDEPENDENT_EQ) {
-            sb.append("# Quve-ChannelSwap: ${preset.channelSwap}\n")
-            sb.append("# Quve-SwapPosition: ${preset.swapPosition.name}\n")
-        }
-        fun appendBand(index: Int, b: PeqBand) {
-            val state = if (b.enabled) "ON" else "OFF"
-            val freqStr = if (b.frequencyHz % 1.0 == 0.0) {
-                String.format(Locale.US, "%.0f", b.frequencyHz)
-            } else {
-                String.format(Locale.US, "%.1f", b.frequencyHz)
+        fun number(value: Double) = BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+        return buildString {
+            if (preset.channelSwap || preset.swapPosition != SwapPosition.BEFORE_INDEPENDENT_EQ) {
+                appendLine("# Quve-ChannelSwap: ${preset.channelSwap}")
+                appendLine("# Quve-SwapPosition: ${preset.swapPosition.name}")
             }
-            if (b.type.supportsGain) {
-                sb.append(
-                    String.format(
-                        Locale.US,
-                        "Filter %d: %s %s Fc %s Hz Gain %.2f dB Q %.3f\n",
-                        index, state, b.type.apoCode, freqStr, b.gainDb, b.q
-                    )
-                )
-            } else {
-                sb.append(
-                    String.format(
-                        Locale.US,
-                        "Filter %d: %s %s Fc %s Hz Q %.3f\n",
-                        index, state, b.type.apoCode, freqStr, b.q
-                    )
-                )
+            fun appendSection(preamp: Double, bands: List<PeqBand>) {
+                appendLine("Preamp: ${number(preamp)} dB")
+                bands.forEachIndexed { index, band ->
+                    val state = if (band.enabled) "ON" else "OFF"
+                    append("Filter ${index + 1}: $state ${band.type.apoCode} Fc ${number(band.frequencyHz)} Hz")
+                    if (band.type.supportsGain) append(" Gain ${number(band.gainDb)} dB")
+                    appendLine(" Q ${number(band.q)}")
+                }
+            }
+            appendSection(preset.commonPreampDb, preset.commonBands)
+            if (preset.leftBands.isNotEmpty() || preset.leftPreampDb != 0.0) {
+                appendLine("Channel: L")
+                appendSection(preset.leftPreampDb, preset.leftBands)
+            }
+            if (preset.rightBands.isNotEmpty() || preset.rightPreampDb != 0.0) {
+                appendLine("Channel: R")
+                appendSection(preset.rightPreampDb, preset.rightBands)
             }
         }
-
-        sb.append(String.format(Locale.US, "Preamp: %.1f dB\n", preset.commonPreampDb))
-        preset.commonBands.forEachIndexed { idx, band -> appendBand(idx + 1, band) }
-
-        if (preset.leftBands.isNotEmpty() || preset.leftPreampDb != 0.0) {
-            sb.append("Channel: L\n")
-            sb.append(String.format(Locale.US, "Preamp: %.1f dB\n", preset.leftPreampDb))
-            preset.leftBands.forEachIndexed { idx, band -> appendBand(idx + 1, band) }
-        }
-
-        if (preset.rightBands.isNotEmpty() || preset.rightPreampDb != 0.0) {
-            sb.append("Channel: R\n")
-            sb.append(String.format(Locale.US, "Preamp: %.1f dB\n", preset.rightPreampDb))
-            preset.rightBands.forEachIndexed { idx, band -> appendBand(idx + 1, band) }
-        }
-        return sb.toString().trimEnd()
     }
 }
 

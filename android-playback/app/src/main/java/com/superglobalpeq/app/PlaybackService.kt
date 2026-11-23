@@ -28,13 +28,14 @@ class PlaybackService : Service() {
         const val CONFIG = "preset"
         const val NAME = "presetName"
         const val PRESET_ID = "presetId"
+        const val MODE = "playbackMode"
         private const val CHANNEL = "playback"
         private const val NOTIFICATION = 1
         private const val DIAGNOSTICS = "playbackDiagnostics"
         private const val LAST_STARTUP = "lastStartup"
-        data class Status(val message: String, val busy: Boolean = false, val running: Boolean = false,
-                          val activePresetId: String? = null)
-        @Volatile var status = Status("Phone EQ is off.")
+        internal data class Status(val message: String, val busy: Boolean = false, val running: Boolean = false,
+                                   val activePresetId: String? = null, val activeMode: PresetPlaybackMode? = null)
+        @Volatile internal var status = Status("Phone EQ is off.")
             private set
 
         fun lastStartup(context: Context): String? = context.getSharedPreferences(DIAGNOSTICS, Context.MODE_PRIVATE)
@@ -65,6 +66,7 @@ class PlaybackService : Service() {
     private var config: String? = null
     private var name = "Phone EQ"
     private var presetId: String? = null
+    private var mode: PresetPlaybackMode? = null
     private var remote: IAudioLoopbackService? = null
     private val binderDead = Shizuku.OnBinderDeadListener {
         handler.post {
@@ -114,6 +116,8 @@ class PlaybackService : Service() {
         }
         config = intent.getStringExtra(CONFIG)
         presetId = intent.getStringExtra(PRESET_ID)
+        val modeName = intent.getStringExtra(MODE)
+        mode = PresetPlaybackMode.entries.firstOrNull { it.name == modeName }
         name = PresetInput.title(intent.getStringExtra(NAME) ?: "Phone EQ")
         startForeground(NOTIFICATION, notification("Starting Phone EQ…"))
         if (config == null || !authorized()) {
@@ -148,6 +152,7 @@ class PlaybackService : Service() {
         val preset = config ?: return
         val activeName = name
         val activeId = presetId
+        val activeMode = mode
         val attempt = ++generation
         handler.removeCallbacks(timeout)
         worker.execute {
@@ -177,8 +182,9 @@ class PlaybackService : Service() {
                     ).joinToString("\n"))
                 }
                 if (applied) {
-                    status = Status("Playing · $activeName", running = true, activePresetId = activeId)
-                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(activeName))
+                    val playing = activeMode?.let { "$activeName · ${it.label}" } ?: activeName
+                    status = Status("Playing · $playing", running = true, activePresetId = activeId, activeMode = activeMode)
+                    getSystemService(NotificationManager::class.java).notify(NOTIFICATION, notification(playing))
                     poll(service, attempt)
                 } else finishPlayback(
                     if (problem.isBlank() || problem == "null") "Audio routing could not start on this device."

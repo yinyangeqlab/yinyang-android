@@ -13,6 +13,12 @@ internal object PresetInput {
     fun title(value: String): String = value.take(160).filter { !it.isISOControl() &&
         Character.getType(it) != Character.FORMAT.toInt() }.trim().take(100).ifBlank { "Imported preset" }
 
+    fun exportFilename(name: String): String {
+        val title = title(name).replace(Regex("""[\\/:*?"<>|]"""), "-")
+        val stem = if (title.endsWith(".txt", ignoreCase = true)) title.dropLast(4) else title
+        return stem.trim('.', ' ').ifBlank { "Phone EQ preset" } + ".txt"
+    }
+
     fun parse(text: CharSequence, name: String): EqualizerApoParser.ParseResult {
         require(text.length <= LIMIT) { "Choose a TXT file under 64 KB." }
         val parsed = EqualizerApoParser.parse(text.toString().removePrefix("\uFEFF"), title(name))
