@@ -5,7 +5,7 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 | Download | Android version | Release |
 | --- | --- | --- |
 | [YingYangEQ App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) | 9 or later | v1.6.7 · Build 29 |
-| [YinYang Phone EQ](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Phone-EQ.apk) | 13 or later, with Shizuku | v0.3.3 · Build 8 |
+| [YinYang Phone EQ](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Phone-EQ.apk) | 13 or later, with Shizuku | v0.3.4 · Build 9 |
 
 [Android page and theme gallery](https://yinyangeq.com/android#install) · [Feature guide](FEATURES.md)
 
