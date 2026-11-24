@@ -94,14 +94,18 @@ public final class CompanionActions {
         UsbModes(Context c,java.util.function.BiConsumer<Integer,Integer> choose){
             super(c);setOrientation(VERTICAL);
             addView(heading(c,"USB mode"));
-            LinearLayout choices=new LinearLayout(c);addView(choices);
+            LinearLayout choices=new LinearLayout(c);
+            choices.setBaselineAligned(false);
+            addView(choices);
             for(UsbMode mode:UsbMode.values()){
                 int index=mode.ordinal();
                 Button option=secondary(c,mode.label,()->choose.accept(selected,index));
                 options[index]=option;
                 option.setContentDescription("USB mode · "+mode.label);
                 option.setMinHeight(px(c,48));
-                choices.addView(option,new LinearLayout.LayoutParams(0,-2,1));
+                option.setMinimumWidth(0);
+                option.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+                choices.addView(option,new LinearLayout.LayoutParams(0,LayoutParams.MATCH_PARENT,1));
             }
             update(-1,false);
         }

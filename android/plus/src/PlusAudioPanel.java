@@ -91,7 +91,7 @@ final class PlusAudioPanel extends LinearLayout {
         }
         effective = label(dac,"",14);
         label(dac,"Channel routing",19);
-        swapChannels = CompanionActions.secondary(c,"Swap left and right",swap);
+        swapChannels = CompanionActions.secondary(c,"Channel Swap",swap);
         dac.addView(swapChannels);
         label(dac,"Swaps the DAC outputs and the active left and right Channel Match preamps and filters. Main EQ stays in place.",14);
         LinearLayout source = this;
@@ -179,7 +179,7 @@ final class PlusAudioPanel extends LinearLayout {
     }
     void routing(boolean allowed, boolean pending, boolean busy, PlusLevels levels) {
         swapChannels.setText(busy ? "Verifying channel swap…" : pending ? "Finish channel swap" :
-                levels != null && levels.channelsSwapped ? "Restore normal channels" : "Swap left and right");
+                levels != null && levels.channelsSwapped ? "Restore normal channels" : "Channel Swap");
         swapChannels.setEnabled(allowed && !busy);
     }
     void inputPending(boolean pending) {
