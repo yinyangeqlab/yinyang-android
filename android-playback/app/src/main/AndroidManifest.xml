@@ -3,7 +3,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <queries><package android:name="moe.shizuku.privileged.api"/></queries>
-    <application android:label="YinYang Phone EQ" android:allowBackup="false" android:icon="@mipmap/launcher"
+    <application android:label="YYEQ PhoneEQ" android:allowBackup="false" android:icon="@mipmap/launcher"
         android:theme="@android:style/Theme.Material.NoActionBar" android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".PlaybackActivity" android:exported="true" android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize" android:enableOnBackInvokedCallback="true">

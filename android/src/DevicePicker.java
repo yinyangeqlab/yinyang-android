@@ -6,10 +6,13 @@ import android.bluetooth.*;
 import android.content.*;
 import android.content.pm.PackageManager;
 import android.hardware.usb.*;
+import android.net.Uri;
 import android.os.*;
 import android.view.*;
 import android.widget.*;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.util.*;
 import java.util.concurrent.*;
 import static com.yinyangeq.qudelixprobe.LabStyle.*;
@@ -17,12 +20,16 @@ import static com.yinyangeq.qudelixprobe.LabStyle.*;
 /** The only exported entry. Candidate discovery performs identity reads only. */
 public final class DevicePicker extends AppearanceActivity {
     private static final int NEARBY=401;
+    private static final int SAVE_LOCAL_LIBRARY=402, RESTORE_LOCAL_LIBRARY=403;
+    private static final String RESTORE_OFFER="localLibraryRestoreOfferSeen";
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final Handler main=new Handler(Looper.getMainLooper());
     private DeviceBinding current;
     private UsbDevice pending;
     private int generation;
     private boolean verifying;
+    private boolean usingBackup;
+    private AlertDialog restoreOffer;
     private boolean watchingBluetooth;
     private Set<String> knownBluetoothDevices;
     private String message="";
@@ -67,6 +74,7 @@ public final class DevicePicker extends AppearanceActivity {
         body=new LinearLayout(this);body.setOrientation(LinearLayout.VERTICAL);
         body.setPadding(dp(this,20),dp(this,12),dp(this,20),dp(this,20));scroll.addView(body);
         setContentView(root);draw();
+        if(!getIntent().getBooleanExtra("manage",false))offerLocalRestore();
     }
     @Override protected void onResume(){
         super.onResume();
@@ -91,7 +99,10 @@ public final class DevicePicker extends AppearanceActivity {
             b.putStringArrayList("knownBluetoothDevices",new ArrayList<>(knownBluetoothDevices));
         super.onSaveInstanceState(b);
     }
-    @Override protected void onDestroy(){generation++;unregisterReceiver(devices);io.shutdownNow();super.onDestroy();}
+    @Override protected void onDestroy(){
+        if(restoreOffer!=null)restoreOffer.dismiss();
+        generation++;unregisterReceiver(devices);io.shutdownNow();super.onDestroy();
+    }
     private UsbManager usb(){return getSystemService(UsbManager.class);}
     private boolean allowed(){return Build.VERSION.SDK_INT<31 || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED;}
     private List<BluetoothDevice> pairedQudelixes(BluetoothAdapter adapter){
@@ -137,7 +148,7 @@ public final class DevicePicker extends AppearanceActivity {
         }
     }
     private void action(String name,Runnable click){
-        Button b=CompanionActions.secondary(this,name,click);b.setEnabled(!verifying && pending==null);body.addView(b,-1,-2);
+        Button b=CompanionActions.secondary(this,name,click);b.setEnabled(!usingBackup && !verifying && pending==null);body.addView(b,-1,-2);
     }
     private void draw(){
         if(body==null || isFinishing())return;
@@ -160,6 +171,9 @@ public final class DevicePicker extends AppearanceActivity {
                     .putExtra(STANDALONE,true).putExtra("autoEq",true),-1));
         }
         if(!message.isEmpty())label(message,15,false);
+        label("Local library",18,true);
+        action("Back up local library",()->pickLocalBackup(true));
+        action("Restore local library",()->pickLocalBackup(false));
         label("USB",18,true);
         int count=0;
         UsbManager manager=usb();
@@ -184,6 +198,72 @@ public final class DevicePicker extends AppearanceActivity {
             if(paired.isEmpty())label(linkedIsPaired?"No other paired Qudelix devices.":"No paired Qudelix found.",14,false);
             action("Pair in Android",this::systemPairing);
         }catch(SecurityException e){label("Allow Nearby devices to list paired devices.",14,false);}
+    }
+    private void offerLocalRestore(){
+        SharedPreferences preferences=getPreferences(MODE_PRIVATE);
+        if(preferences.getBoolean(RESTORE_OFFER,false))return;
+        io.execute(()->{
+            if(new CompanionLocalBackup(this).hasEntries())return;
+            main.post(()->{
+                if(isFinishing() || isDestroyed() || current!=null || verifying || usingBackup)return;
+                Runnable seen=()->preferences.edit().putBoolean(RESTORE_OFFER,true).apply();
+                restoreOffer=new AlertDialog.Builder(this)
+                    .setTitle("Import a previous library backup?")
+                    .setMessage("Choose a library backup made by YYEQ5K. If this is your first time using the app, tap Skip.")
+                    .setPositiveButton("Import backup",(dialog,which)->{seen.run();pickLocalBackup(false);})
+                    .setNegativeButton("Skip",(dialog,which)->seen.run())
+                    .setOnCancelListener(dialog->seen.run()).show();
+            });
+        });
+    }
+
+    private void pickLocalBackup(boolean exporting){
+        Intent picker=new Intent(exporting?Intent.ACTION_CREATE_DOCUMENT:Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE).setType(exporting?"application/json":"*/*");
+        if(exporting)picker.putExtra(Intent.EXTRA_TITLE,"YYEQ5K-Local-Library.json");
+        try{startActivityForResult(picker,exporting?SAVE_LOCAL_LIBRARY:RESTORE_LOCAL_LIBRARY);}
+        catch(ActivityNotFoundException missing){message="No Android file picker is available.";draw();}
+    }
+
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(request!=SAVE_LOCAL_LIBRARY && request!=RESTORE_LOCAL_LIBRARY)return;
+        Uri uri=result==RESULT_OK && data!=null?data.getData():null;
+        if(uri==null || !"content".equals(uri.getScheme()))return;
+        usingBackup=true;
+        message=request==SAVE_LOCAL_LIBRARY?"Saving library backup…":"Restoring library…";
+        draw();
+        io.execute(()->{
+            String outcome;
+            try{
+                CompanionLocalBackup library=new CompanionLocalBackup(this);
+                if(request==SAVE_LOCAL_LIBRARY){
+                    byte[] contents=library.exportLibrary();
+                    try(OutputStream output=getContentResolver().openOutputStream(uri,"wt")){
+                        if(output==null)throw new IOException("Could not open the backup destination.");
+                        output.write(contents);
+                    }
+                    outcome="Library backup saved.";
+                }else{
+                    int count;
+                    try(InputStream input=getContentResolver().openInputStream(uri)){
+                        if(input==null)throw new IOException("Could not open the backup file.");
+                        count=library.restore(input);
+                    }
+                    outcome=count==0?"No new library entries to restore.":count==1?"Restored 1 library entry.":
+                        "Restored "+count+" library entries.";
+                }
+            }catch(IOException error){
+                outcome=error.getMessage();
+                if(outcome==null)outcome="Could not read or write the library backup.";
+            }catch(org.json.JSONException | IllegalArgumentException error){
+                outcome="Choose a backup that matches the YYEQ5K library format.";
+            }catch(SecurityException error){
+                outcome="Open the file picker again to grant access.";
+            }
+            String note=outcome;
+            main.post(()->{if(!isDestroyed()){usingBackup=false;message=note;draw();}});
+        });
     }
     private void systemPairing(){try{startActivity(BluetoothPages.pairing(this));}
         catch(ActivityNotFoundException|SecurityException e){message="Open Bluetooth in Android Settings.";draw();}}

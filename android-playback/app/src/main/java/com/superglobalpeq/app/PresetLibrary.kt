@@ -2,6 +2,8 @@ package com.superglobalpeq.app
 
 import android.content.SharedPreferences
 import com.superglobalpeq.app.model.EqPreset
+import java.io.IOException
+import java.util.UUID
 import org.json.JSONObject
 
 internal enum class PresetKind(val label: String) {
@@ -24,7 +26,7 @@ internal enum class PresetKind(val label: String) {
 internal class PresetLibrary(private val preferences: SharedPreferences) {
     fun selected(): EqPreset? = decode(preferences.getString(SELECTED, null))
 
-    fun load(): List<EqPreset> {
+    fun load(): List<EqPreset> = synchronized(libraryLock) {
         val entries = preferences.all.mapNotNull { (key, value) ->
             if (key.startsWith(PREFIX)) decode(value as? String) else null
         }
@@ -32,19 +34,62 @@ internal class PresetLibrary(private val preferences: SharedPreferences) {
         if (legacy != null) {
             preferences.edit().putString(PREFIX + legacy.id, legacy.toJson().toString()).apply()
         }
-        return (entries + listOfNotNull(legacy)).sortedByDescending { it.updatedAtEpochMs }
+        (entries + listOfNotNull(legacy)).sortedByDescending { it.updatedAtEpochMs }
     }
 
-    fun select(preset: EqPreset) = preferences.edit().putString(SELECTED, preset.toJson().toString()).apply()
+    fun select(preset: EqPreset) = synchronized(libraryLock) {
+        preferences.edit().putString(SELECTED, preset.toJson().toString()).apply()
+    }
 
-    fun saveAndSelect(preset: EqPreset) {
+    fun saveAndSelect(preset: EqPreset) = synchronized(libraryLock) {
         val serialized = preset.toJson().toString()
         preferences.edit().putString(PREFIX + preset.id, serialized).putString(SELECTED, serialized).apply()
+    }
+
+    fun backup(): LibraryBackup = synchronized(libraryLock) {
+        LibraryBackup(load(), selected()?.id)
+    }
+
+    fun restore(backup: LibraryBackup): Int = synchronized(libraryLock) {
+        val existing = load().associateBy { it.id }.toMutableMap()
+        val edits = preferences.edit()
+        val previousSelection = preferences.getString(SELECTED, null)
+        val selectFromBackup = selected() == null
+        val originals = mutableMapOf<String, String?>()
+        var added = 0
+        for (source in backup.presets) {
+            var preset = source
+            // Keep a different preset under the same ID. Use a stable copy ID on a repeated restore.
+            while (existing[preset.id]?.let { it != preset } == true) {
+                val id = UUID.nameUUIDFromBytes(preset.toJson().toString().toByteArray(Charsets.UTF_8))
+                preset = preset.copy(id = id.toString())
+            }
+            if (existing.putIfAbsent(preset.id, preset) == null) {
+                val key = PREFIX + preset.id
+                originals[key] = preferences.getString(key, null)
+                edits.putString(key, preset.toJson().toString())
+                added++
+            }
+            if (selectFromBackup && source.id == backup.selectedId) {
+                originals[SELECTED] = previousSelection
+                edits.putString(SELECTED, preset.toJson().toString())
+            }
+        }
+        if (originals.isNotEmpty() && !edits.commit()) {
+            val rollback = preferences.edit()
+            originals.forEach { (key, oldValue) -> rollback.putString(key, oldValue) }
+            rollback.apply()
+            throw IOException("Phone EQ could not save the restored presets. Check available space and try again.")
+        }
+        added
     }
 
     companion object {
         private const val PREFIX = "library."
         private const val SELECTED = "preset"
+        private val libraryLock = Any()
+
+        fun ownsKey(key: String?) = key == SELECTED || key?.startsWith(PREFIX) == true
 
         fun decode(json: String?): EqPreset? = runCatching {
             json?.let { EqPreset.fromJson(JSONObject(it)).also(PresetInput::validate) }

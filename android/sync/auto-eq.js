@@ -21,6 +21,46 @@ const fixed=(db,n=2)=>Number(db).toFixed(n);
 function pane(parent,heading){
  const panel=el('section',null,parent);panel.className='fit-pane';el('h2',heading,panel);return panel;
 }
+function fitDetailText(value){
+ return typeof value==='string'?value.replace(/[\p{Cc}\p{Cf}]+/gu,' ').trim().replace(/\s+/g,' ').slice(0,160):'';
+}
+function fitDeviceName(measurement){
+ return fitDetailText(measurement.device || measurement.name).replace(/\.(?:txt|csv|tsv)$/i,'');
+}
+function measurementDetails(parent,measurement){
+ const details=el('details',null,parent);details.className='fit-measurement-details';
+ el('summary','Preset details (optional)',details);
+ const fields=[['device',measurement.type==='ie'?'IEM':'Headphones']];
+ if(measurement.type==='ie')fields.push(['tips','Ear tips'],['size','Tip size']);
+ for(const [key,title] of fields){
+   const field=el('input',null,el('label',title,details));
+   field.maxLength=160;
+   field.value=measurement.fitDetails[key];
+   field.oninput=()=>{measurement.fitDetails[key]=field.value;};
+ }
+}
+function phoneFitPreset(saved,option,text){
+ const details={
+   device:fitDetailText(saved.fitDetails?.device)||fitDeviceName(saved),
+   tips:fitDetailText(saved.fitDetails?.tips),
+   size:fitDetailText(saved.fitDetails?.size),
+   target:fitDetailText(saved.target).replace(/\.(?:txt|csv|tsv)$/i,''),
+   fitter:fitDetailText(option.label+(option.fallback?' · fallback':'')),
+ };
+ const shortened=(value,limit)=>value.length>limit
+   ?value.slice(0,limit-1).replace(/[\uD800-\uDBFF]$/,'').trimEnd()+'…':value;
+ const sizeKey=details.size.toLowerCase().replace(/[\s-]+/g,'');
+ const sizes=new Map([['extrasmall','XS'],['small','S'],['mediumsmall','MS'],['smallmedium','MS'],['medium','M'],
+   ['mediumlarge','ML'],['largemedium','ML'],['large','L'],['extralarge','XL']]);
+ const size=sizes.get(sizeKey)
+   || (/^(?:xxs|xs|ss|s|ms|m|ml|l|ll|xl|xxl)$/i.test(details.size)?details.size.toUpperCase():details.size);
+ const fitter=({standard:'Std',precise:'Prec',peqdb:'PEQdB-U','peqdb-smoothed':'PEQdB-S'})[option.method];
+ const fitName=[shortened(details.device,28),
+   [shortened(details.tips,15),shortened(size,7)].filter(Boolean).join(' '),
+   shortened(details.target,24),
+   fitter&&option.bands?fitter+' '+option.bands+'b':shortened(details.fitter,15)].filter(Boolean).join(' · ');
+ return {name:fitName||'Generated EQ',text:'# YinYang-Fit: '+JSON.stringify(details)+'\n'+text};
+}
 function segments(parent,label,items,selected,change){
  const group=el('div',null,parent);group.className='segments';group.setAttribute('role','group');group.setAttribute('aria-label',label);
  for(const [value,title] of items){const b=btn(title,()=>{if(value!==selected)change(value);},group);b.setAttribute('aria-pressed',String(value===selected));}
@@ -134,7 +174,7 @@ function resultsForSearch(parent){
  }
  const savedTargets=head?[]:library.eqs.filter(e=>e.target?.points?.length).map(e=>({...e.target,name:e.target.name||e.name}));
  if(waiting){
-   const message=waiting.key && waiting.key!=='headphone:index'?'Loading curve…':head?'Loading headphone catalog…':'Loading targets and global rankings…';
+   const message=waiting.key && waiting.key!=='headphone:index'?'Loading curve…':head?'Loading headphone catalog…':'Loading targets and verified rankings…';
    el('p',message,parent).setAttribute('role','status');
    if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);
    return;
@@ -150,6 +190,11 @@ function resultsForSearch(parent){
    section(localKind==='ie'?'Public IEMs':'Public headphones',headphoneRows.filter(row=>row.type===localKind),
      requestTarget,{limited:true,enabled:connected});
  }else{
+   if(indexRanked && rankOrder==='global'){
+     const ranked=indexRows.some(row=>row.globalRank!=null);
+     el('p',ranked?'Global ranks use verified blind comparisons with the same audio file across listeners.'
+       :'No targets have a verified blind-test rank yet.',parent).setAttribute('role','status');
+   }
    if(indexRows.length)section('Targets',indexRows,requestTarget,{rank:true,enabled:connected});
    if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);
  }
@@ -408,6 +453,7 @@ function fitForm(){
        if(!Phone.keepMeasurement(JSON.stringify(m))){status('Could not save this file on your phone. Check available storage.');return;}
        uploadMessage='Saved on this phone.';
      }
+     m.fitDetails={device:fitDeviceName(m),tips:fitDetailText(m.tips),size:fitDetailText(m.tipSize)};
      confirmed=m;requestId++;waiting=null;searchQuery='';searchMessage='';hitLimit=30;draw();
      if(attachment && linked && library.writable && online()){
        const match=m.leftPoints?{leftPoints:m.leftPoints,rightPoints:m.rightPoints,leftLevelDb:m.leftLevelDb,rightLevelDb:m.rightLevelDb}:null;
@@ -418,6 +464,7 @@ function fitForm(){
    return;
  }
  el('strong',confirmed.name,input);el('small',[localKind==='ie'?'IEM':'Headphone',uploadMessage].filter(Boolean).join(' · '),input);
+ measurementDetails(input,confirmed);
  btn('Change measurement',editMeasurement,input).className='clear-file';
  const targetPanel=pane(main,'2. Choose a target response');
  radios(targetPanel,'Target source',[['search','Search target curves'],['file','Attach target file']],targetMode,key=>{
@@ -441,6 +488,7 @@ function fitForm(){
 
 function startFit(m,t,match,run,button){
  if(job || !m || !t)return;button.disabled=true;
+ const fitDetails={...m.fitDetails};
  const progress=el('div',null,run);progress.className='fit-progress';progress.setAttribute('role','status');
  const spinner=el('span',null,progress);spinner.className='dot-ring';spinner.setAttribute('aria-hidden','true');
  const message=el('strong','Generating fits…',progress);
@@ -464,7 +512,7 @@ function startFit(m,t,match,run,button){
      }
      if(!data.choices || !result)return;
      stopJob();
-     comparison={version:2,time:Date.now(),name:m.name,target:t.name,mainOnly:!match,result,allowed,choices:data.choices,raw:m.points,targetPoints:t.points};
+     comparison={version:2,time:Date.now(),name:m.name,fitDetails,target:t.name,mainOnly:!match,result,allowed,choices:data.choices,raw:m.points,targetPoints:t.points};
      const saved=Phone.rememberComparison(JSON.stringify(comparison));restoreOpened=true;draw();
      if(saved===false)status('The comparison is open. This phone could not save it locally.');
      window.scrollTo(0,0);
@@ -567,7 +615,10 @@ function renderComparison(saved,parent){
    type.disabled=variants.length===1;
    const current=()=>variants[type.selectedIndex];
    const name=()=>filename.slice(0,72)+' - '+current().label;
-   btn(Phone.hasPhoneEq()?'Open in Phone EQ':'Get Phone EQ',()=>Phone.openPhoneEq(name(),current().text),exports).className='fit-export-open';
+   btn('Open in Phone EQ',()=>{
+     const preset=phoneFitPreset(saved,opt,current().text);
+     Phone.openPhoneEq(preset.name,preset.text);
+   },exports).className='fit-export-open';
    const fileActions=el('div',null,exports);fileActions.className='fit-export-actions';
    btn('Save TXT',()=>saveFiles(filename,[{name:name(),text:current().text}]),fileActions);
    btn('Copy filters',()=>Phone.copyPeq(current().text),fileActions);

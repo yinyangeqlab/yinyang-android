@@ -23,8 +23,11 @@ COMPANION = "com.yinyangeq.android.companion"
 MANAGER = "com.yinyangeq.android.manager"
 PHONE_EQ = "com.yinyangeq.android.playback"
 PHONE_EQ_ASSET = "YinYang-Phone-EQ.apk"
+PHONE_EQ_MANIFEST = ROOT.parent / "android-playback/app/src/main/AndroidManifest.xml"
 COMPANION_TITLE = "YinYangEQ Companion App for Qudelix 5K and 5K Plus"
 MANAGER_TITLE = "YingYangEQ App Manager"
+MANAGER_LAUNCHER_LABEL = "YYEQ App Manager"
+PHONE_EQ_TITLE = "System Wide PEQ"
 COMPANION_DOWNLOAD_NAME = "YinYangEQ Q5K Companion App.apk"
 APPS = (
     (COMPANION, COMPANION_TITLE, "YinYang-Companion.apk", ROOT.parent / "android", 26, "YYEQ5K"),
@@ -51,6 +54,10 @@ def signing_material():
     return key, password, hashlib.sha256(cert).hexdigest()
 
 
+def application_label(source):
+    return ET.parse(source).getroot().find("application").attrib[ANDROID + "label"]
+
+
 def manifest(source, app_id, destination):
     tree = ET.parse(source)
     root = tree.getroot()
@@ -62,7 +69,7 @@ def manifest(source, app_id, destination):
         if name.startswith("."):
             component.set(ANDROID + "name", original + name)
     if app_id == MANAGER:
-        app.set(ANDROID + "label", MANAGER_TITLE)
+        app.set(ANDROID + "label", MANAGER_LAUNCHER_LABEL)
         queries = root.find("queries")
         queries.clear()
         ET.SubElement(queries, "package", {ANDROID + "name": COMPANION})
@@ -91,14 +98,19 @@ def build_apk(app, key, password, pin, output):
                 '<network-security-config><base-config cleartextTrafficPermitted="false">'
                 '<trust-anchors><certificates src="system"/></trust-anchors>'
                 '</base-config></network-security-config>')
-            pins = [dict(package=package, label=label, asset=asset, signer=pin, notificationLabel=short_label)
-                    for package, label, asset, _, _, short_label in APPS]
+            pins = [
+                dict(package=package, label=title, asset=asset, signer=pin, notificationLabel=short_label,
+                     launcherLabel=MANAGER_LAUNCHER_LABEL if package == MANAGER
+                     else application_label(source / "AndroidManifest.xml"))
+                for package, title, asset, source, _, short_label in APPS
+            ]
             next(app for app in pins if app["package"] == COMPANION)["downloadName"] = COMPANION_DOWNLOAD_NAME
-            pins.append(dict(package=PHONE_EQ, label="System Wide PEQ", asset=PHONE_EQ_ASSET,
-                             signer=pin, notificationLabel="System Wide PEQ", downloadName=PHONE_EQ_ASSET, minSdk=33))
+            pins.append(dict(package=PHONE_EQ, label=PHONE_EQ_TITLE, asset=PHONE_EQ_ASSET,
+                             signer=pin, notificationLabel=PHONE_EQ_TITLE, downloadName=PHONE_EQ_ASSET,
+                             launcherLabel=application_label(PHONE_EQ_MANIFEST), minSdk=33))
             (work / "assets/release-feed.json").write_text(json.dumps(dict(public=True, endpoint=ENDPOINT, apps=pins)))
         if app_id == MANAGER:
-            code, version = "29", "1.6.7"
+            code, version = "30", "1.6.8"
         else:
             versions = re.search(r"--version-code (\d+) --version-name ([\d.]+)", (source / "build.sh").read_text())
             code, version = versions.groups()
@@ -191,7 +203,9 @@ def add_phone_eq(apk, pin, output):
         raise ValueError("Phone EQ must use the Lab release signature")
     info = subprocess.check_output([tools / "aapt2", "dump", "badging", dest], text=True)
     match = re.search(r"^package: name='([^']+)' versionCode='(\d+)' versionName='([^']+)'", info, re.MULTILINE)
-    if not match or match[1] != PHONE_EQ or "minSdkVersion:'33'" not in info or "application-debuggable" in info:
+    label = application_label(PHONE_EQ_MANIFEST)
+    if (not match or match[1] != PHONE_EQ or "minSdkVersion:'33'" not in info
+            or f"application-label:'{label}'" not in info or "application-debuggable" in info):
         raise ValueError("Unexpected Phone EQ release manifest")
     return dict(package=PHONE_EQ, code=int(match[2]), version=match[3],
                 bytes=dest.stat().st_size, sha256=delta.digest(dest))

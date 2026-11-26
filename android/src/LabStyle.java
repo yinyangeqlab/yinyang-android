@@ -165,7 +165,7 @@ final class LabStyle {
         header(a, parent, showDebug == null ? null : () -> ((AppearanceActivity)a).chooseTheme(), showDebug);
     }
     static void header(Activity a, LinearLayout parent, Runnable themeAction, Runnable showDebug) {
-        header(a,parent,themeAction,showDebug,a.getApplicationInfo().loadLabel(a.getPackageManager()).toString(),false);
+        header(a,parent,themeAction,showDebug,"YinYangEQ Qudelix 5K Companion",false);
     }
     static void modelHeader(Activity a,LinearLayout parent,boolean plus,Runnable theme,Runnable debug){
         header(a,parent,theme,debug,plus?"Yin Yang EQ · 5K Plus":"Yin Yang EQ · 5K",false);

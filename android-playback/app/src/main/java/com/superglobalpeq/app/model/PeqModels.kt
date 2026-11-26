@@ -151,7 +151,8 @@ data class EqPreset(
     val channelSwap: Boolean = false,
     val swapPosition: SwapPosition = SwapPosition.BEFORE_INDEPENDENT_EQ,
     val updatedAtEpochMs: Long = System.currentTimeMillis(),
-    val baseline: EqPresetBaseline? = null
+    val baseline: EqPresetBaseline? = null,
+    val fit: PresetFit? = null
 ) {
     val isModifiedFromBaseline: Boolean
         get() = baseline != null && !matchesBaseline(baseline)
@@ -245,6 +246,7 @@ data class EqPreset(
         if (baseline != null) {
             put("baseline", baseline.toJson())
         }
+        if (fit != null) put("fit", fit.toJson())
     }
 
     companion object {
@@ -274,7 +276,8 @@ data class EqPreset(
                 channelSwap = obj.optBoolean("channelSwap", false),
                 swapPosition = swapPos,
                 updatedAtEpochMs = obj.optLong("updatedAtEpochMs", System.currentTimeMillis()),
-                baseline = baseline
+                baseline = baseline,
+                fit = obj.optJSONObject("fit")?.let(PresetFit::fromJson)
             )
             return preset to hasSwapKey
         }

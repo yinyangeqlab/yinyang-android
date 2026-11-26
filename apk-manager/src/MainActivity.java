@@ -36,6 +36,7 @@ public final class MainActivity extends Activity {
     private ArrayList<String> pendingBatchExport;
     private static final int SAVE_APK = 24;
     private static final int SAVE_APKS = 25;
+    static final String PUBLIC_TITLE = "YingYangEQ App Manager";
     private static final int INK = 0xffedf3f7, AQUA = 0xff58d8c9, MUTED = 0xffb5c7ca;
 
     public void onCreate(Bundle saved) {
@@ -66,7 +67,8 @@ public final class MainActivity extends Activity {
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.brand_header);
         header.addView(logo, dp(41), dp(41));
-        TextView brand = label(getApplicationInfo().loadLabel(getPackageManager()).toString(), 27, INK, true);
+        String title = UpdateChannel.PRIVATE ? getApplicationInfo().loadLabel(getPackageManager()).toString() : PUBLIC_TITLE;
+        TextView brand = label(title, 27, INK, true);
         brand.setPadding(dp(10), 0, 0, 0);
         header.addView(brand);
         page.addView(header);
@@ -283,6 +285,12 @@ public final class MainActivity extends Activity {
             lp.topMargin = dp(10);
             rows.addView(card, lp);
             card.addView(label(a.label, 19, INK, true));
+            String launcherLabel = a.installedLauncherLabel == null ? a.launcherLabel : a.installedLauncherLabel;
+            if (!UpdateChannel.PRIVATE && !launcherLabel.isEmpty()) {
+                TextView installedName = label("Installed app name · " + launcherLabel, 14, MUTED, false);
+                installedName.setPadding(0, dp(2), 0, dp(4));
+                card.addView(installedName);
+            }
             card.addView(
                 label(a.installed == null ? "Not installed" : "Installed " + a.installed, 14, MUTED, false));
             Uri saved = !UpdateChannel.PRIVATE && a.wanted() && a.problem == null ? Downloads.savedFile(this, a) : null;
@@ -307,10 +315,30 @@ public final class MainActivity extends Activity {
                     pendingUpdates.add(a.hash);
                 card.addView(b);
             }
+            if (!UpdateChannel.PRIVATE && a.launchable && !getPackageName().equals(a.id)) {
+                Button launch = new Button(this);
+                launch.setAllCaps(false);
+                launch.setText("Launch app");
+                launch.setMinHeight(dp(48));
+                launch.setContentDescription("Launch app, " + a.label);
+                launch.setOnClickListener(v -> launchInstalled(a));
+                card.addView(launch);
+            }
         }
         if (!UpdateChannel.PRIVATE) {
             updateAll.setEnabled(interactive && !pendingUpdates.isEmpty());
             updateAll.setOnClickListener(v -> downloadAll(pendingUpdates));
+        }
+    }
+
+    private void launchInstalled(Updates.App app) {
+        try {
+            Intent launch = getPackageManager().getLaunchIntentForPackage(app.id);
+            if (launch == null) throw new ActivityNotFoundException();
+            startActivity(launch);
+        } catch (ActivityNotFoundException | SecurityException unavailable) {
+            Toast.makeText(this, "Android could not launch " + app.label + ".", Toast.LENGTH_LONG).show();
+            check(false);
         }
     }
 

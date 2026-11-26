@@ -18,7 +18,7 @@
         <package android:name="com.yinyangeq.android.playback" />
         <intent><action android:name="android.settings.BLUETOOTH_SETTINGS"/></intent>
     </queries>
-    <application android:label="YinYangEQ Qudelix 5K Companion" android:icon="@mipmap/launcher" android:allowBackup="false"
+    <application android:label="YYEQ 5K" android:icon="@mipmap/launcher" android:allowBackup="false"
         android:usesCleartextTraffic="false" android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity android:name=".TuningActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false" android:windowSoftInputMode="adjustResize"/>
         <activity android:name=".LabActivity" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false" android:windowSoftInputMode="adjustResize"/>
@@ -26,7 +26,7 @@
         <activity android:name=".ProbeActivity" android:exported="false"/>
         <activity android:name=".PlusLab" android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" android:exported="false"/>
         <activity android:name=".PlusActivity" android:exported="false" android:windowSoftInputMode="adjustResize"/>
-        <activity android:name=".DevicePicker" android:exported="true" android:label="YYEQ5K">
+        <activity android:name=".DevicePicker" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

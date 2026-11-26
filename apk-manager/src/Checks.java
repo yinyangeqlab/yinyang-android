@@ -111,7 +111,8 @@ public final class Checks extends JobService {
             .setContentIntent(action)
             .setAutoCancel(true);
         if (pending.size() == 1) {
-            notification.setContentTitle(getApplicationInfo().loadLabel(getPackageManager()))
+            notification.setContentTitle(UpdateChannel.PRIVATE ? getApplicationInfo().loadLabel(getPackageManager())
+                    : MainActivity.PUBLIC_TITLE)
                 .setContentText(pending.get(0).label + " has a new release.");
         } else {
             StringJoiner names = new StringJoiner(" · ");

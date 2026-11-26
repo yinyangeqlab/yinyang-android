@@ -1,6 +1,7 @@
 package com.yinyangeq.apkmanager;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -26,18 +27,19 @@ final class Updates {
     private final File dir;
 
     static class App {
-        final String id, label, notificationLabel, downloadName, signer;
+        final String id, label, launcherLabel, notificationLabel, downloadName, signer;
         final int minSdk;
-        String version, hash, installed, problem;
+        String version, hash, installed, installedLauncherLabel, problem;
         final Map<String, JSONObject> patches = new LinkedHashMap<>();
         String asset;
         long code, size;
         File baseApk;
         boolean patched;
-        boolean current, blocked, ready;
+        boolean current, blocked, ready, launchable;
         App(JSONObject pin) throws JSONException {
             id = pin.getString("package");
             label = pin.getString("label");
+            launcherLabel = pin.optString("launcherLabel");
             notificationLabel = pin.optString("notificationLabel", label);
             downloadName = pin.optString("downloadName");
             signer = pin.getString("signer");
@@ -66,9 +68,20 @@ final class Updates {
         }
         channel = new UpdateChannel(config);
         JSONArray list = config.getJSONArray("apps");
+        List<App> pinned = new ArrayList<>();
         for (int i = 0; i < list.length(); i++) {
-            App app = new App(list.getJSONObject(i));
-            apps.put(app.id, app);
+            pinned.add(new App(list.getJSONObject(i)));
+        }
+        if (!UpdateChannel.PRIVATE) pinned.sort(Comparator.comparingInt(app -> displayOrder(app.id)));
+        for (App app : pinned) apps.put(app.id, app);
+    }
+
+    private static int displayOrder(String packageName) {
+        switch (packageName) {
+            case "com.yinyangeq.android.manager": return 0;
+            case "com.yinyangeq.android.companion": return 1;
+            case "com.yinyangeq.android.playback": return 2;
+            default: return 3;
         }
     }
 
@@ -172,9 +185,10 @@ final class Updates {
     }
 
     private void inspectInstalled(App a) throws Exception {
+        PackageManager packages = ctx.getPackageManager();
         PackageInfo pi;
         try {
-            pi = ctx.getPackageManager().getPackageInfo(a.id, PackageManager.GET_SIGNING_CERTIFICATES);
+            pi = packages.getPackageInfo(a.id, PackageManager.GET_SIGNING_CERTIFICATES);
         } catch (PackageManager.NameNotFoundException absent) {
             return;
         }
@@ -185,6 +199,18 @@ final class Updates {
             return;
         }
         a.baseApk = new File(pi.applicationInfo.sourceDir);
+        if (!UpdateChannel.PRIVATE) {
+            Intent launch = packages.getLaunchIntentForPackage(a.id);
+            a.launchable = launch != null;
+            if (launch != null && launch.getComponent() != null) {
+                try {
+                    a.installedLauncherLabel = packages.getActivityInfo(launch.getComponent(), 0)
+                            .loadLabel(packages).toString();
+                } catch (PackageManager.NameNotFoundException ignored) {
+                    // An app can be updated or removed while the list is being read.
+                }
+            }
+        }
         if (a.hash == null)
             return;
         if (pi.getLongVersionCode() > a.code) {

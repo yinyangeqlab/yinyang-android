@@ -8,6 +8,7 @@ import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Typeface
@@ -59,6 +60,9 @@ class PlaybackActivity : Activity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val reader = Executors.newSingleThreadExecutor()
+    private val appPackage by lazy {
+        packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+    }
     private lateinit var appearance: PhoneAppearance
     private lateinit var library: PresetLibrary
     private lateinit var home: ScrollView
@@ -70,6 +74,7 @@ class PlaybackActivity : Activity() {
     private lateinit var presetList: ListView
     private lateinit var libraryEmpty: TextView
     private lateinit var kindButton: Button
+    private lateinit var backupButton: Button
     private lateinit var query: EditText
     private lateinit var reviewName: EditText
     private lateinit var openTxt: Button
@@ -82,6 +87,7 @@ class PlaybackActivity : Activity() {
     private lateinit var presetHeading: TextView
     private lateinit var presetName: TextView
     private lateinit var presetHint: TextView
+    private lateinit var fitDetails: TextView
     private lateinit var filters: LinearLayout
     private lateinit var filterCounts: List<TextView>
     private lateinit var filterDetails: TextView
@@ -97,6 +103,7 @@ class PlaybackActivity : Activity() {
     private lateinit var playback: Button
     private lateinit var stop: Button
     private var bugDialog: AlertDialog? = null
+    private var restoreOffer: AlertDialog? = null
     private var themeIndex = 0
     private var setup: Setup? = null
     private var selected: EqPreset? = null
@@ -117,6 +124,13 @@ class PlaybackActivity : Activity() {
     private var pairedMode = PresetPlaybackMode.BOTH
     private var request = 0
     private val back = OnBackInvokedCallback { backToParent() }
+    private val updateSavedPresets = Runnable { reloadLibrary(); refresh() }
+    private val libraryListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (PresetLibrary.ownsKey(key)) {
+            handler.removeCallbacks(updateSavedPresets)
+            handler.post(updateSavedPresets)
+        }
+    }
     private val permissionListener = Shizuku.OnRequestPermissionResultListener { code, _ ->
         if (code == SHIZUKU_REQUEST) handler.post { setup = null; refresh() }
     }
@@ -128,7 +142,8 @@ class PlaybackActivity : Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        themeIndex = getPreferences(MODE_PRIVATE).getInt("theme", 0)
+        val savedTheme = getPreferences(MODE_PRIVATE).getInt("theme", 0)
+        themeIndex = if (savedTheme in PhoneAppearance.names.indices) savedTheme else 0
         if (themeIndex == 2) setTheme(android.R.style.Theme_Material_Light_NoActionBar)
         super.onCreate(savedInstanceState)
         appearance = PhoneAppearance.at(themeIndex)
@@ -161,6 +176,7 @@ class PlaybackActivity : Activity() {
         presetList.setSelectionFromTop(savedInstanceState?.getInt("listPosition") ?: 0,
             savedInstanceState?.getInt("listOffset") ?: 0)
         if (savedInstanceState?.getBoolean("bugReportOpen") == true) showBugReport()
+        offerLibraryRestore()
     }
 
     override fun onSaveInstanceState(out: Bundle) {
@@ -185,6 +201,7 @@ class PlaybackActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == Intent.ACTION_SEND) restoreOffer?.dismiss()
         receive(intent)
         refresh()
     }
@@ -204,6 +221,12 @@ class PlaybackActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        getPreferences(MODE_PRIVATE).registerOnSharedPreferenceChangeListener(libraryListener)
+        reloadLibrary()
+        handler.post(refreshLoop)
+    }
+
+    private fun reloadLibrary() {
         val latestSelection = library.selected()
         val latestLibrary = library.load()
         if (latestSelection != selected || latestLibrary != saved) {
@@ -212,15 +235,17 @@ class PlaybackActivity : Activity() {
             saved = latestLibrary
             updateLibrary()
         }
-        handler.post(refreshLoop)
     }
 
     override fun onPause() {
+        getPreferences(MODE_PRIVATE).unregisterOnSharedPreferenceChangeListener(libraryListener)
+        handler.removeCallbacks(updateSavedPresets)
         handler.removeCallbacks(refreshLoop)
         super.onPause()
     }
 
     override fun onDestroy() {
+        restoreOffer?.dismiss()
         bugDialog?.dismiss()
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
@@ -255,9 +280,13 @@ class PlaybackActivity : Activity() {
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }, dp(52), dp(36))
         }
-        header.addView(label("YinYang Phone EQ", 21, appearance.ink, true).apply {
-            isAccessibilityHeading = true
+        header.addView(column().apply {
             setPaddingRelative(dp(if (width >= 400) 10 else 0), 0, dp(8), 0)
+            addView(label("YinYang Phone EQ", 21, appearance.ink, true).apply {
+                isAccessibilityHeading = true
+            }, -1, -2)
+            addView(label("v${appPackage.versionName} · Build ${appPackage.longVersionCode}",
+                13, appearance.muted), -1, -2)
         }, LinearLayout.LayoutParams(0, -2, 1f))
         header.addView(button("Report a bug", action = ::showBugReport).apply {
             maxWidth = dp(170)
@@ -380,6 +409,8 @@ class PlaybackActivity : Activity() {
             addView(reviewForm, -1, -2)
             presetHint = label("", 15, appearance.muted)
             addView(presetHint, spaced(6))
+            fitDetails = label("", 14, appearance.muted)
+            addView(fitDetails, spaced(10))
             filters = LinearLayout(this@PlaybackActivity).apply {
                 orientation = LinearLayout.HORIZONTAL
                 setBaselineAligned(false)
@@ -419,7 +450,7 @@ class PlaybackActivity : Activity() {
             exportActions = LinearLayout(this@PlaybackActivity).apply {
                 isBaselineAligned = false
                 addView(navButton("Copy filters") {
-                    selected?.let { copyToClipboard("Phone EQ filters", EqualizerApoParser.export(it)) }
+                    selected?.let { copyToClipboard("Phone EQ filters", PresetInput.export(it)) }
                 }, LinearLayout.LayoutParams(0, -1, 1f))
                 addView(navButton("Export TXT", action = ::exportPreset),
                     LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(8) })
@@ -449,6 +480,14 @@ class PlaybackActivity : Activity() {
                     LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(8) })
             }
             addView(tools, spaced(8))
+            val backupTools = LinearLayout(this@PlaybackActivity).apply {
+                isBaselineAligned = false
+                backupButton = button("Back up library", action = ::chooseLibraryBackupDestination)
+                addView(backupButton, LinearLayout.LayoutParams(0, -1, 1f))
+                addView(button("Restore library", action = ::chooseLibraryBackup),
+                    LinearLayout.LayoutParams(0, -1, 1f).apply { marginStart = dp(8) })
+            }
+            addView(backupTools, spaced(8))
             val results = FrameLayout(this@PlaybackActivity)
             addView(results, LinearLayout.LayoutParams(-1, 0, 1f).apply { topMargin = dp(8) })
             rows = PresetRows()
@@ -543,11 +582,15 @@ class PlaybackActivity : Activity() {
         val chosen = kind
         rows.items = saved.filter { preset ->
             val type = PresetKind.of(preset)
+            val fields = listOf(preset.name, type.label) + preset.fit?.let {
+                listOf(it.device, it.tips, it.size, it.target, it.fitter)
+            }.orEmpty()
             (chosen == null || chosen == type) && terms.all { term ->
-                preset.name.contains(term, ignoreCase = true) || type.label.contains(term, ignoreCase = true)
+                fields.any { it.contains(term, ignoreCase = true) }
             }
         }
         kindButton.update(chosen?.label ?: "All presets")
+        backupButton.isEnabled = saved.isNotEmpty()
         kindButton.contentDescription = "Filter presets, ${kindButton.text}"
         libraryEmpty.update(if (saved.isEmpty()) "Import a TXT file or open a fit from YYEQ5K to save a preset."
             else "No matching presets.")
@@ -669,7 +712,7 @@ class PlaybackActivity : Activity() {
     }
 
     private fun showBugReport() {
-        val app = packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
+        val app = appPackage
         val shizukuVersion = runCatching {
             packageManager.getPackageInfo(SHIZUKU_PACKAGE, PackageManager.PackageInfoFlags.of(0)).versionName
         }.getOrNull()
@@ -683,7 +726,7 @@ class PlaybackActivity : Activity() {
         val outputs = getSystemService(AudioManager::class.java)
             .getDevices(AudioManager.GET_DEVICES_OUTPUTS).map { outputName(it.type) }.distinct().sorted()
         val report = buildString {
-            appendLine("${applicationInfo.loadLabel(packageManager)} ${app.versionName} (build ${app.longVersionCode})")
+            appendLine("YinYang Phone EQ ${app.versionName} (build ${app.longVersionCode})")
             appendLine("${Build.MANUFACTURER} ${Build.MODEL} · Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Android build ${Build.DISPLAY}")
             appendLine("Android security patch ${Build.VERSION.SECURITY_PATCH}")
@@ -798,6 +841,14 @@ class PlaybackActivity : Activity() {
             preset == null -> "Choose a preset from Library or import a TXT file."
             else -> "${PresetKind.of(preset).label} • Selected preset"
         })
+        val details = preset?.fit?.let {
+            listOf("Headphone / IEM" to it.device, "Ear tips" to it.tips, "Tip size" to it.size,
+                "Target" to it.target, "Fitter" to it.fitter)
+                .filter { (_, value) -> value.isNotEmpty() }
+                .joinToString("\n") { (label, value) -> "$label · $value" }
+        }.orEmpty()
+        fitDetails.update(details)
+        fitDetails.visible(details.isNotEmpty())
         filters.visible(preset != null)
         playbackModes.visible(!reviewing && preset != null && PresetKind.of(preset) == PresetKind.PAIRED)
         modeButtons.forEach { (mode, control) -> control.isSelected = mode == pairedMode }
@@ -884,7 +935,7 @@ class PlaybackActivity : Activity() {
         }
     }
 
-    private fun stagePreset(read: () -> com.superglobalpeq.app.dsp.EqualizerApoParser.ParseResult) {
+    private fun stagePreset(read: () -> EqualizerApoParser.ParseResult) {
         val sequence = ++request
         reader.execute {
             val result = runCatching(read)
@@ -924,11 +975,27 @@ class PlaybackActivity : Activity() {
     @Deprecated("Uses the Android system document picker.")
     override fun onActivityResult(request: Int, result: Int, data: Intent?) {
         super.onActivityResult(request, result, data)
+        if (request == SAVE_LIBRARY || request == RESTORE_LIBRARY) {
+            val uri = data?.data
+            if (result != RESULT_OK || uri?.scheme != "content") return
+            if (request == SAVE_LIBRARY) {
+                writeDocument(uri, "Library backup saved.", "Could not save the library backup.") {
+                    library.backup().encode()
+                }
+            } else {
+                restoreLibrary(uri)
+            }
+            return
+        }
         if (request == SAVE_TXT) {
             val text = pendingExport
             pendingExport = null
             val uri = data?.data
-            if (result == RESULT_OK && uri?.scheme == "content" && text != null) saveExport(uri, text)
+            if (result == RESULT_OK && uri?.scheme == "content" && text != null) {
+                writeDocument(uri, "Preset TXT saved.", "Could not save the preset TXT. Choose another location.") {
+                    text.toByteArray(Charsets.UTF_8)
+                }
+            }
             return
         }
         if (request != OPEN_TXT || result != RESULT_OK) return
@@ -946,7 +1013,7 @@ class PlaybackActivity : Activity() {
     @Suppress("DEPRECATION")
     private fun exportPreset() {
         val preset = selected ?: return
-        pendingExport = EqualizerApoParser.export(preset)
+        pendingExport = PresetInput.export(preset)
         val picker = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
             .setType("text/plain").putExtra(Intent.EXTRA_TITLE, PresetInput.exportFilename(preset.name))
         try {
@@ -957,17 +1024,90 @@ class PlaybackActivity : Activity() {
         }
     }
 
-    private fun saveExport(uri: Uri, text: String) {
+    private fun offerLibraryRestore() {
+        val preferences = getPreferences(MODE_PRIVATE)
+        if (saved.isNotEmpty() || screen != Screen.HOME || intent.action == Intent.ACTION_SEND ||
+            bugDialog?.isShowing == true || preferences.getBoolean(RESTORE_OFFER_SEEN, false)) return
+
+        fun markSeen() = preferences.edit().putBoolean(RESTORE_OFFER_SEEN, true).apply()
+        restoreOffer = AlertDialog.Builder(this)
+            .setTitle("Import a previous library backup?")
+            .setMessage("Choose a library backup made by Phone EQ. If this is your first time using the app, tap Skip.")
+            .setPositiveButton("Import backup") { _, _ -> markSeen(); chooseLibraryBackup() }
+            .setNegativeButton("Skip") { _, _ -> markSeen() }
+            .setOnCancelListener { markSeen() }
+            .show()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun chooseLibraryBackupDestination() {
+        val picker = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/json").putExtra(Intent.EXTRA_TITLE, "YinYang-Phone-EQ-Library.json")
+        try {
+            startActivityForResult(picker, SAVE_LIBRARY)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "No file picker is available to save the backup.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun chooseLibraryBackup() {
+        val picker = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        try {
+            startActivityForResult(picker, RESTORE_LIBRARY)
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, "No file picker is available to open the backup.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun restoreLibrary(uri: Uri) {
         reader.execute {
-            val saved = runCatching {
+            val restored = runCatching {
+                val backup = contentResolver.openInputStream(uri)?.use(LibraryBackup::read)
+                    ?: throw IOException("Could not open the library backup.")
+                library.restore(backup)
+            }
+            handler.post {
+                if (isDestroyed) return@post
+                val message = restored.fold(
+                    onSuccess = { count ->
+                        reloadLibrary()
+                        refresh()
+                        when (count) {
+                            0 -> "No new presets to restore."
+                            1 -> "Restored 1 preset."
+                            else -> "Restored $count presets."
+                        }
+                    },
+                    onFailure = { error ->
+                        if (error is IOException || error is IllegalArgumentException) error.message
+                            ?: "Could not restore the library backup."
+                        else "Choose a valid Phone EQ library backup file."
+                    }
+                )
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun writeDocument(uri: Uri, success: String, failure: String, contents: () -> ByteArray) {
+        reader.execute {
+            val result = runCatching {
+                val bytes = contents()
                 val stream = contentResolver.openOutputStream(uri, "wt")
                     ?: throw IOException("Could not open the export destination.")
-                stream.bufferedWriter(Charsets.UTF_8).use { it.write(text) }
-            }.isSuccess
+                stream.use { it.write(bytes) }
+            }
             handler.post {
-                if (!isDestroyed) Toast.makeText(this,
-                    if (saved) "Preset TXT saved." else "Could not save the preset TXT. Choose another location.",
-                    Toast.LENGTH_LONG).show()
+                if (!isDestroyed) {
+                    val error = result.exceptionOrNull()
+                    val message = when (error) {
+                        null -> success
+                        is IllegalArgumentException -> error.message ?: failure
+                        else -> failure
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -999,6 +1139,9 @@ class PlaybackActivity : Activity() {
         private const val SHIZUKU_REQUEST = 2
         private const val NOTIFICATION_REQUEST = 3
         private const val SAVE_TXT = 4
+        private const val SAVE_LIBRARY = 5
+        private const val RESTORE_LIBRARY = 6
+        private const val RESTORE_OFFER_SEEN = "libraryRestoreOfferSeen"
         private const val SHIZUKU_PACKAGE = "moe.shizuku.privileged.api"
         private val COMPANION_PACKAGES = setOf("com.yinyangeq.android.companion", "com.yinyangeq.companion.preview")
     }

@@ -3,12 +3,16 @@ package com.superglobalpeq.app
 import com.superglobalpeq.app.dsp.EqualizerApoParser
 import com.superglobalpeq.app.model.EqPreset
 import com.superglobalpeq.app.model.PeqBand
+import com.superglobalpeq.app.model.PresetFit
+import org.json.JSONObject
 import java.io.IOException
 import java.io.InputStream
 
 internal object PresetInput {
     const val LIMIT = 65536
     private const val MAX_FILTERS = 160
+    private const val FIT_PREFIX = "# YinYang-Fit: "
+    private const val MAX_FIT_LINE = 8192
 
     fun title(value: String): String = value.take(160).filter { !it.isISOControl() &&
         Character.getType(it) != Character.FORMAT.toInt() }.trim().take(100).ifBlank { "Imported preset" }
@@ -21,9 +25,18 @@ internal object PresetInput {
 
     fun parse(text: CharSequence, name: String): EqualizerApoParser.ParseResult {
         require(text.length <= LIMIT) { "Choose a TXT file under 64 KB." }
-        val parsed = EqualizerApoParser.parse(text.toString().removePrefix("\uFEFF"), title(name))
+        val source = text.toString().removePrefix("\uFEFF")
+        val parsed = EqualizerApoParser.parse(source, title(name))
         validate(parsed.preset)
-        return parsed
+        val fit = source.lineSequence()
+            .firstOrNull { it.startsWith(FIT_PREFIX) && it.length <= MAX_FIT_LINE }
+            ?.let { line -> runCatching { PresetFit.fromJson(JSONObject(line.removePrefix(FIT_PREFIX))) }.getOrNull() }
+        return if (fit == null) parsed else parsed.copy(preset = parsed.preset.copy(fit = fit))
+    }
+
+    fun export(preset: EqPreset): String {
+        val header = preset.fit?.let { FIT_PREFIX + it.toJson().toString() + "\n" }.orEmpty()
+        return header + EqualizerApoParser.export(preset)
     }
 
     fun validate(preset: EqPreset) {
