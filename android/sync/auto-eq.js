@@ -174,7 +174,7 @@ function resultsForSearch(parent){
  }
  const savedTargets=head?[]:library.eqs.filter(e=>e.target?.points?.length).map(e=>({...e.target,name:e.target.name||e.name}));
  if(waiting){
-   const message=waiting.key && waiting.key!=='headphone:index'?'Loading curve…':head?'Loading headphone catalog…':'Loading targets and verified rankings…';
+   const message=waiting.key && waiting.key!=='headphone:index'?'Loading curve…':head?'Loading headphone catalog…':'Loading targets and global rankings…';
    el('p',message,parent).setAttribute('role','status');
    if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);
    return;
@@ -192,8 +192,8 @@ function resultsForSearch(parent){
  }else{
    if(indexRanked && rankOrder==='global'){
      const ranked=indexRows.some(row=>row.globalRank!=null);
-     el('p',ranked?'Global ranks use verified blind comparisons with the same audio file across listeners.'
-       :'No targets have a verified blind-test rank yet.',parent).setAttribute('role','status');
+     el('p',ranked?'Global ranks use the website’s All results view, with matched A/B and earlier blind comparisons.'
+       :'No targets have a global rank yet.',parent).setAttribute('role','status');
    }
    if(indexRows.length)section('Targets',indexRows,requestTarget,{rank:true,enabled:connected});
    if(savedTargets.length)section('Saved targets',savedTargets,chooseTarget);

@@ -80,8 +80,7 @@ final class TargetCatalog {
     }
     private Map<String,Integer> globalRanks()throws Exception{
         JSONObject research=new JSONObject(siteApi("/api/research",8*1024*1024));
-        JSONArray rows=research.getJSONObject("protocols").getJSONObject("current")
-                .getJSONObject("all").getJSONArray("rows");
+        JSONArray rows=research.getJSONObject("allFitters").getJSONObject("all").getJSONArray("rows");
         Map<String,Integer> ranks=new HashMap<>();
         for(int i=0;i<rows.length();i++)ranks.put(rows.getJSONObject(i).getString("id"),i+1);
         return ranks;
