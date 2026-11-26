@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 
 /** Backs up user-saved phone records in every device workspace. */
 final class CompanionLocalBackup {
+    static final String INVALID_BACKUP = "Choose a valid YYEQ5K library backup file.";
     private static final String FORMAT = "yinyang-companion-local-library";
     private static final int VERSION = 1;
     private static final int MAX_BYTES = 32 * 1024 * 1024;
@@ -275,7 +276,7 @@ final class CompanionLocalBackup {
     }
 
     private static void require(boolean condition) throws IOException {
-        require(condition, "Choose a backup that matches the Companion library format.");
+        require(condition, INVALID_BACKUP);
     }
 
     private static void require(boolean condition, String message) throws IOException {

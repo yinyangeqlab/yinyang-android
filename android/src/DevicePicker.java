@@ -228,13 +228,20 @@ public final class DevicePicker extends AppearanceActivity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request!=SAVE_LOCAL_LIBRARY && request!=RESTORE_LOCAL_LIBRARY)return;
-        Uri uri=result==RESULT_OK && data!=null?data.getData():null;
-        if(uri==null || !"content".equals(uri.getScheme()))return;
+        if(result!=RESULT_OK)return;
+        Uri uri=data==null?null:data.getData();
+        if(uri==null || !"content".equals(uri.getScheme())){
+            if(request==RESTORE_LOCAL_LIBRARY){
+                Toast.makeText(this,CompanionLocalBackup.INVALID_BACKUP,Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
         usingBackup=true;
         message=request==SAVE_LOCAL_LIBRARY?"Saving library backup…":"Restoring library…";
         draw();
         io.execute(()->{
             String outcome;
+            boolean completed=false;
             try{
                 CompanionLocalBackup library=new CompanionLocalBackup(this);
                 if(request==SAVE_LOCAL_LIBRARY){
@@ -253,16 +260,24 @@ public final class DevicePicker extends AppearanceActivity {
                     outcome=count==0?"No new library entries to restore.":count==1?"Restored 1 library entry.":
                         "Restored "+count+" library entries.";
                 }
+                completed=true;
             }catch(IOException error){
                 outcome=error.getMessage();
                 if(outcome==null)outcome="Could not read or write the library backup.";
             }catch(org.json.JSONException | IllegalArgumentException error){
-                outcome="Choose a backup that matches the YYEQ5K library format.";
+                outcome=CompanionLocalBackup.INVALID_BACKUP;
             }catch(SecurityException error){
                 outcome="Open the file picker again to grant access.";
             }
             String note=outcome;
-            main.post(()->{if(!isDestroyed()){usingBackup=false;message=note;draw();}});
+            boolean restoreFailed=request==RESTORE_LOCAL_LIBRARY && !completed;
+            main.post(()->{
+                if(isFinishing() || isDestroyed())return;
+                usingBackup=false;
+                message=note;
+                draw();
+                if(restoreFailed)Toast.makeText(this,note,Toast.LENGTH_LONG).show();
+            });
         });
     }
     private void systemPairing(){try{startActivity(BluetoothPages.pairing(this));}
