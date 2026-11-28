@@ -14,10 +14,10 @@ public final class LabActivity extends CompanionLibrary {
         if(dest==getIntent().getIntExtra("returnTab",-1)){closeTab();return;}
         CompanionNavigation.go(this,dest,getIntent().getStringExtra("device"));
     }
-    void receive(String title,String shared,String match){
+    void receive(String title,String shared,String match,String graph){
         if(standalone())return;
         openTab(new Intent(this,DeviceWorkbench.class).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP).putExtra("device",getIntent().getStringExtra("device"))
-            .putExtra("libraryDraft",true).putExtra("tuningText",shared).putExtra("matchText",match).putExtra("tuningName",title),-1);
+            .putExtra("libraryDraft",true).putExtra("tuningText",shared).putExtra("matchText",match).putExtra("tuningName",title).putExtra("graphInputs",graph),-1);
         closeTab();
     }
     void compareFits(String payload){

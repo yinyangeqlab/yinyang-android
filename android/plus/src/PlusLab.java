@@ -8,8 +8,8 @@ public final class PlusLab extends CompanionLibrary {
     }
     boolean plus(){return true;}
     void navigate(int dest){setResult(RESULT_OK,new Intent().putExtra("nav",dest));closeTab();}
-    void receive(String title,String shared,String match){setResult(RESULT_OK,new Intent().putExtra("tuningName",title)
-        .putExtra("tuningText",shared).putExtra("matchText",match));closeTab();}
+    void receive(String title,String shared,String match,String graph){setResult(RESULT_OK,new Intent().putExtra("tuningName",title)
+        .putExtra("tuningText",shared).putExtra("matchText",match).putExtra("graphInputs",graph));closeTab();}
     void compareFits(String payload){
         setResult(RESULT_OK,new Intent().putExtra(FitPair.EXTRA,payload));closeTab();
     }

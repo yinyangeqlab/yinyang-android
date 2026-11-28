@@ -2,6 +2,7 @@ package com.yinyangeq.qudelixprobe;
 
 import android.bluetooth.*;
 import android.content.*;
+import android.content.pm.PackageManager;
 import android.media.*;
 import android.os.Build;
 import android.os.Bundle;
@@ -42,9 +43,20 @@ final class BluetoothPages {
         }
         return null;
     }
-    static String audioState(Context c,String address,boolean plus){
+    static String linkedStatus(Context c,String address,boolean plus){
         BluetoothAdapter a=adapter(c);if(a==null)return "Bluetooth unavailable";
+        if(Build.VERSION.SDK_INT>=31 && c.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED)
+            return "Bluetooth · Allow Nearby devices to check pairing";
         try{if(!a.isEnabled())return "Bluetooth is off";}catch(SecurityException unavailable){return "Nearby devices permission required";}
+        BluetoothDevice device=paired(c,address==null || address.isEmpty()?null:address,plus);
+        if(device==null)return "Bluetooth · Not paired with this phone";
+        return "Bluetooth · "+pairedStatus(c,device.getAddress(),plus);
+    }
+    static String pairedStatus(Context c,String address,boolean plus){
+        if(hasAudioOutput(c,address,plus))return "Paired · Audio connected";
+        return Build.VERSION.SDK_INT>=28?"Paired · No Bluetooth audio":"Paired";
+    }
+    private static boolean hasAudioOutput(Context c,String address,boolean plus){
         AudioManager manager=c.getSystemService(AudioManager.class);
         if(manager!=null)for(AudioDeviceInfo d:manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)){
             int t=d.getType();
@@ -53,8 +65,8 @@ final class BluetoothPages {
             boolean exact = BluetoothAdapter.checkBluetoothAddress(output) && !"02:00:00:00:00:00".equals(output);
             boolean known = BluetoothAdapter.checkBluetoothAddress(address);
             if (known ? exact && address.equalsIgnoreCase(output) : model(String.valueOf(d.getProductName()),plus))
-                return "Android Bluetooth audio output available";
+                return true;
         }
-        return "No matching Android Bluetooth audio output";
+        return false;
     }
 }

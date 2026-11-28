@@ -37,13 +37,34 @@ internal class PresetLibrary(private val preferences: SharedPreferences) {
         (entries + listOfNotNull(legacy)).sortedByDescending { it.updatedAtEpochMs }
     }
 
-    fun select(preset: EqPreset) = synchronized(libraryLock) {
-        preferences.edit().putString(SELECTED, preset.toJson().toString()).apply()
+    fun select(id: String): EqPreset? = synchronized(libraryLock) {
+        val encoded = preferences.getString(PREFIX + id, null)
+        val preset = decode(encoded) ?: return@synchronized null
+        preferences.edit().putString(SELECTED, encoded).apply()
+        preset
     }
 
     fun saveAndSelect(preset: EqPreset) = synchronized(libraryLock) {
         val serialized = preset.toJson().toString()
         preferences.edit().putString(PREFIX + preset.id, serialized).putString(SELECTED, serialized).apply()
+    }
+
+    fun delete(id: String): Boolean = synchronized(libraryLock) {
+        val key = PREFIX + id
+        val stored = preferences.getString(key, null)
+        val selection = preferences.getString(SELECTED, null)
+        val wasSelected = decode(selection)?.id == id
+        if (stored == null && !wasSelected) return@synchronized false
+
+        val edit = preferences.edit().remove(key)
+        if (wasSelected) edit.remove(SELECTED)
+        if (!edit.commit()) {
+            val rollback = preferences.edit().putString(key, stored)
+            if (wasSelected) rollback.putString(SELECTED, selection)
+            rollback.apply()
+            throw IOException("Could not delete the preset. Check available space and try again.")
+        }
+        true
     }
 
     fun backup(): LibraryBackup = synchronized(libraryLock) {

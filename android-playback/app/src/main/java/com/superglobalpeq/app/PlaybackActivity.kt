@@ -105,6 +105,7 @@ class PlaybackActivity : Activity() {
     private lateinit var stop: Button
     private var bugDialog: AlertDialog? = null
     private var restoreOffer: AlertDialog? = null
+    private var deletePresetDialog: AlertDialog? = null
     private var themeIndex = 0
     private var setup: Setup? = null
     private var selected: EqPreset? = null
@@ -202,7 +203,10 @@ class PlaybackActivity : Activity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        if (intent.action == Intent.ACTION_SEND) restoreOffer?.dismiss()
+        if (intent.action == Intent.ACTION_SEND) {
+            restoreOffer?.dismiss()
+            deletePresetDialog?.dismiss()
+        }
         receive(intent)
         refresh()
     }
@@ -248,6 +252,7 @@ class PlaybackActivity : Activity() {
     override fun onDestroy() {
         restoreOffer?.dismiss()
         bugDialog?.dismiss()
+        deletePresetDialog?.dismiss()
         Shizuku.removeRequestPermissionResultListener(permissionListener)
         if (backRegistered) onBackInvokedDispatcher.unregisterOnBackInvokedCallback(back)
         reader.shutdown()
@@ -505,18 +510,9 @@ class PlaybackActivity : Activity() {
             rows = PresetRows()
             presetList = ListView(this@PlaybackActivity).apply {
                 adapter = rows
+                itemsCanFocus = true
                 divider = android.graphics.drawable.ColorDrawable(appearance.line)
                 dividerHeight = dp(1)
-                setOnItemClickListener { _, _, position, _ ->
-                    val preset = rows.getItem(position)
-                    library.select(preset)
-                    if (selected?.id != preset.id) pairedMode = PresetPlaybackMode.BOTH
-                    selected = preset
-                    showFilters = false
-                    updateLibrary()
-                    navigate(Screen.HOME)
-                    home.scrollTo(0, 0)
-                }
             }
             results.addView(presetList, -1, -1)
             libraryEmpty = label("", 15, appearance.muted).apply {
@@ -530,6 +526,45 @@ class PlaybackActivity : Activity() {
         limitWidth(this, content)
     }
 
+    private fun selectPreset(id: String) {
+        val preset = library.select(id) ?: return
+        if (selected?.id != preset.id) pairedMode = PresetPlaybackMode.BOTH
+        selected = preset
+        showFilters = false
+        updateLibrary()
+        navigate(Screen.HOME)
+        home.scrollTo(0, 0)
+    }
+
+    private fun confirmDeletePreset(preset: EqPreset) {
+        val message = buildString {
+            append("Delete “${preset.name}” from your library?")
+            if (PlaybackService.status.activePresetId == preset.id) {
+                append("\n\nPhone EQ will keep playing until you stop it.")
+            }
+        }
+        deletePresetDialog = AlertDialog.Builder(this)
+            .setTitle("Delete preset?")
+            .setMessage(message)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Delete") { _, _ ->
+                reader.execute {
+                    val result = runCatching { library.delete(preset.id) }
+                    handler.post {
+                        if (isDestroyed) return@post
+                        reloadLibrary()
+                        refresh()
+                        Toast.makeText(this, result.fold(
+                            onSuccess = { if (it) "Preset deleted." else "This preset is no longer in your library." },
+                            onFailure = { "Could not delete the preset. Try again." }
+                        ), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setOnDismissListener { deletePresetDialog = null }
+            .show()
+    }
+
     private inner class PresetRows : BaseAdapter() {
         var items = emptyList<EqPreset>()
         override fun getCount(): Int = items.size
@@ -537,11 +572,23 @@ class PlaybackActivity : Activity() {
         override fun getItemId(position: Int): Long = position.toLong()
 
         override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
-            val row = convertView as? LinearLayout ?: column().apply {
-                setPaddingRelative(dp(10), dp(10), dp(10), dp(10))
-                minimumHeight = dp(56)
-                addView(label("", 16, appearance.ink, true))
-                addView(label("", 14, appearance.muted))
+            val row = convertView as? LinearLayout ?: LinearLayout(this@PlaybackActivity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                isBaselineAligned = false
+                setPaddingRelative(0, dp(4), dp(4), dp(4))
+                val title = column().apply {
+                    setPaddingRelative(dp(10), dp(8), dp(10), dp(8))
+                    minimumHeight = dp(48)
+                    isFocusable = true
+                    isScreenReaderFocusable = true
+                    val feedback = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackground))
+                    background = feedback.getDrawable(0)
+                    feedback.recycle()
+                    addView(label("", 16, appearance.ink, true))
+                    addView(label("", 14, appearance.muted))
+                }
+                addView(title, LinearLayout.LayoutParams(0, -2, 1f))
+                addView(button("Delete") {}, LinearLayout.LayoutParams(-2, -2).apply { marginStart = dp(8) })
             }
             val preset = getItem(position)
             val isSelected = preset.id == selected?.id
@@ -552,8 +599,14 @@ class PlaybackActivity : Activity() {
             }
             row.setBackgroundColor(if (isSelected) appearance.active else android.graphics.Color.TRANSPARENT)
             row.isActivated = isSelected
-            (row.getChildAt(0) as TextView).text = preset.name
-            (row.getChildAt(1) as TextView).text = PresetKind.of(preset).label + state
+            val title = row.getChildAt(0) as LinearLayout
+            (title.getChildAt(0) as TextView).text = preset.name
+            (title.getChildAt(1) as TextView).text = PresetKind.of(preset).label + state
+            title.setOnClickListener { selectPreset(preset.id) }
+            (row.getChildAt(1) as Button).apply {
+                contentDescription = "Delete ${preset.name}"
+                setOnClickListener { confirmDeletePreset(preset) }
+            }
             return row
         }
     }

@@ -16,8 +16,8 @@ android {
         applicationId = "com.yinyangeq.android.playback"
         minSdk = 33
         targetSdk = 36
-        versionCode = 14
-        versionName = "0.3.7"
+        versionCode = 15
+        versionName = "0.3.8"
     }
     buildFeatures {
         aidl = true

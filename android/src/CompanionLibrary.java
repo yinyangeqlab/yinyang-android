@@ -63,7 +63,8 @@ abstract class CompanionLibrary extends AppearanceActivity {
     abstract boolean validFit(String shared,String match);
     private ValueCallback<Uri[]> selectedFiles;
     abstract void navigate(int dest);
-    abstract void receive(String title,String shared,String match);
+    final void receive(String title,String shared,String match){receive(title,shared,match,null);}
+    abstract void receive(String title,String shared,String match,String graph);
     abstract void compareFits(String payload);
     @Override public void onCreate(Bundle state){
         super.onCreate(state);grant=new LibraryGrant(this);
@@ -470,11 +471,12 @@ abstract class CompanionLibrary extends AppearanceActivity {
         @JavascriptInterface public void refresh(){runOnUiThread(()->fetch(false));}
         @JavascriptInterface public void disconnect(){runOnUiThread(()->new AlertDialog.Builder(CompanionLibrary.this)
             .setTitle("Disconnect account sync?").setPositiveButton("Disconnect",(d,w)->fetch(true)).setNegativeButton("Cancel",null).show());}
-        @JavascriptInterface public void draft(String payload){if(standalone() || payload==null || payload.length()>32768)return;runOnUiThread(()->{
+        @JavascriptInterface public void draft(String payload){if(standalone() || payload==null || payload.length()>65536)return;runOnUiThread(()->{
             try{JSONObject v=new JSONObject(payload);String title=v.getString("name"),shared=v.getString("shared"),match=v.getString("match");
-                if(title.length()>256 || shared.isEmpty() && match.isEmpty())throw new IllegalArgumentException();
+                if(title.length()>256 || shared.length()+match.length()>32768 || shared.isEmpty() && match.isEmpty())throw new IllegalArgumentException();
+                JSONObject graph=v.optJSONObject("graph");
                 new AlertDialog.Builder(CompanionLibrary.this).setTitle("Load into DSP editor?").setMessage(title)
-                    .setPositiveButton("Load draft",(d,w)->receive(title,shared,match)).setNegativeButton("Cancel",null).show();
+                    .setPositiveButton("Load draft",(d,w)->receive(title,shared,match,graph==null?null:graph.toString())).setNegativeButton("Cancel",null).show();
             }catch(Exception e){message("Invalid EQ draft.");}
         });}
     }

@@ -3,6 +3,12 @@ package com.yinyangeq.qudelixprobe;
 import android.app.AlertDialog;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.graphics.Path;
+import android.graphics.Paint;
+import android.graphics.Canvas;
+import android.graphics.PixelFormat;
+import android.graphics.ColorFilter;
+import android.graphics.drawable.Drawable;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.*;
@@ -37,21 +43,17 @@ final class CompanionEditor {
         scroll.addView(body,new FrameLayout.LayoutParams(-1,-2,Gravity.CENTER_HORIZONTAL));
         return body;
     }
-    static void stages(LinearLayout parent, int active, boolean plus, IntConsumer select) {
+    static void stages(LinearLayout parent, int active, IntConsumer select) {
         Context c=parent.getContext();
         LinearLayout tabs=new LinearLayout(c);
-        String[] titles={"Main EQ","Channel Match","30-band"};
-        String[] subtitles={"USR","SPK","Main only"};
-        String[] labels=AppearanceActivity.stageTabs(c);
-        for(int i=0;i<(plus?3:2);i++) {
+        String[] titles={"Main EQ","Channel Match","Paired EQ"};
+        for(int i=0;i<titles.length;i++) {
             final int bank=i;
             LinearLayout col=column(c);
             Button button=CompanionActions.buttonForSize(c,"",false,()->{if(bank!=active)select.accept(bank);});
             quiet(button);
-            android.text.SpannableString label=new android.text.SpannableString(titles[i]+"\n"+subtitles[i]);
-            label.setSpan(new android.text.style.RelativeSizeSpan(.83f),titles[i].length()+1,label.length(),0);
-            button.setText(label);
-            button.setContentDescription(i<labels.length?labels[i]:"30-band");
+            button.setText(titles[i]);
+            button.setMinHeight(dp(c,48));
             button.setSelected(i==active);
             button.setTextColor(i==active?INK:MUTED);
             button.setPadding(dp(c,3),0,dp(c,3),0);
@@ -62,56 +64,269 @@ final class CompanionEditor {
         }
         parent.addView(tabs);
     }
-    static void responseTitle(LinearLayout parent,String title,boolean stereo){
+    /** The tab bar follows its slot until it reaches the top of the viewport. */
+    static final class StickyStages {
+        private final Viewport scroll;
+        private final View spacer;
+        private final LinearLayout bar;
+        private int active=-1;
+
+        StickyStages(FrameLayout pane,Viewport viewport,LinearLayout container) {
+            scroll=viewport;
+            Context c=container.getContext();
+            spacer=new View(c);
+            container.addView(spacer,-1,0);
+            bar=column(c);
+            bar.setPadding(dp(c,14),0,dp(c,14),0);
+            bar.setBackgroundColor(BG);
+            bar.setVisibility(View.GONE);
+            pane.addView(bar,new FrameLayout.LayoutParams(-1,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL));
+            bar.addOnLayoutChangeListener((view,l,t,r,b,oldL,oldT,oldR,oldB)->{
+                sizeSpacer(b-t);
+                position();
+            });
+            spacer.addOnLayoutChangeListener((view,l,t,r,b,oldL,oldT,oldR,oldB)->position());
+            container.addOnLayoutChangeListener((view,l,t,r,b,oldL,oldT,oldR,oldB)->{
+                if(bar.getLayoutParams().width!=r-l){
+                    bar.getLayoutParams().width=r-l;
+                    bar.requestLayout();
+                }
+                position();
+            });
+            scroll.setOnScrollChangeListener((view,x,y,oldX,oldY)->position());
+        }
+
+        void show(int stage,IntConsumer select){
+            if(active!=stage){
+                active=stage;
+                bar.removeAllViews();
+                stages(bar,stage,select);
+            }
+            bar.setVisibility(View.VISIBLE);
+            if(bar.getHeight()>0)sizeSpacer(bar.getHeight());
+            position();
+        }
+
+        void hide(){
+            bar.setVisibility(View.GONE);
+            sizeSpacer(0);
+        }
+
+        private void sizeSpacer(int height){
+            if(spacer.getLayoutParams().height==height)return;
+            spacer.getLayoutParams().height=height;
+            spacer.requestLayout();
+        }
+
+        private void position(){
+            bar.setTranslationY(Math.max(0,spacer.getTop()-scroll.getScrollY()));
+        }
+    }
+
+    static CompanionResponse graph(LinearLayout parent,ResponseTraces.Stage stage,EqGraphInputs sources,
+                                   PeqResponse main,PeqResponse... ears){
+        Context c=parent.getContext();
+        boolean match=stage==ResponseTraces.Stage.MATCH;
+        LinearLayout title=new LinearLayout(c);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        parent.addView(title);
+        title.addView(text(c,match?(sources.stereo()?"Deviation from reference":"Channel Match correction")
+                :sources.measured()?"Estimated response":stage==ResponseTraces.Stage.PAIR?"Combined EQ response":"Main EQ response",
+                16,INK,true),part());
+        Button inputs=CompanionActions.buttonForSize(c,"Graph inputs",false,sources::choose);
+        quiet(inputs);
+        inputs.setMinHeight(dp(c,48));
+        inputs.setMinimumHeight(dp(c,48));
+        title.addView(inputs);
+        if(sources.measured() || sources.target!=null)
+            parent.addView(text(c,sources.summary(),12,MUTED,false));
+
+        CompanionResponse plot=new CompanionResponse(c,stage,sources,main,ears);
+        if(match){
+            LinearLayout options=new LinearLayout(c);
+            options.setGravity(Gravity.CENTER_VERTICAL);
+            boolean wide=c.getResources().getConfiguration().screenWidthDp>=330
+                    && c.getResources().getConfiguration().fontScale<=1.3f;
+            parent.addView(options);
+            if(sources.stereo()){
+                Button before=CompanionActions.buttonForSize(c,"Before",false,()->{});
+                Button after=CompanionActions.buttonForSize(c,"After",false,()->{});
+                before.setContentDescription("Before match");
+                after.setContentDescription("After match");
+                LinearLayout segments=LabStyle.switcher(c,before,after,sources.after?1:0);
+                Runnable update=()->{
+                    LabStyle.markTab(before,!sources.after);
+                    LabStyle.markTab(after,sources.after);
+                    before.setMinHeight(dp(c,48));before.setMinimumHeight(dp(c,48));
+                    after.setMinHeight(dp(c,48));after.setMinimumHeight(dp(c,48));
+                    plot.refresh();
+                };
+                before.setOnClickListener(view->{sources.setAfter(false);update.run();});
+                after.setOnClickListener(view->{sources.setAfter(true);update.run();});
+                update.run();
+                options.addView(segments,part());
+            }
+            CheckBox zero=new CheckBox(c);
+            zero.setText("0 dB line");
+            zero.setTextColor(INK);
+            zero.setButtonTintList(android.content.res.ColorStateList.valueOf(BLUE));
+            zero.setMinHeight(dp(c,48));
+            zero.setChecked(sources.zeroLine);
+            zero.setOnCheckedChangeListener((view,checked)->{sources.setZeroLine(checked);plot.invalidate();});
+            if(!sources.stereo() || wide) options.addView(zero);
+            else parent.addView(zero);
+        }
+
+        LinearLayout labels=new LinearLayout(c);
+        parent.addView(labels);
+        if(match){
+            labels.addView(text(c,"━ Left",13,left(c,null),true),part());
+            labels.addView(text(c,"━ Right",13,right(c),true),part());
+        }else{
+            labels.addView(text(c,stage==ResponseTraces.Stage.PAIR || sources.stereo()?"━ L/R average"
+                    :sources.measured()?"━ Estimated":"━ Filter effect",13,BLUE,true),part());
+            if(sources.compareTarget())labels.addView(text(c,"━ Target",13,MUTED,true),part());
+        }
+        labels.addView(text(c,"dB",12,MUTED,false));
+        parent.addView(plot,-1,dp(c,124));
+        return plot;
+    }
+    static Button bandAction(Context c,String label,boolean enabled,Runnable action){
+        Button button=CompanionActions.buttonForSize(c,label,false,action);
+        quiet(button);
+        button.setMinHeight(dp(c,48));
+        button.setMinimumWidth(dp(c,61));
+        button.setPadding(dp(c,8),dp(c,4),dp(c,8),dp(c,4));
+        button.setTextSize(13);
+        button.setBackground(new android.graphics.drawable.InsetDrawable(surface(c,BG,LINE,6),
+                dp(c,4),dp(c,6),dp(c,4),dp(c,6)));
+        button.setEnabled(enabled);
+        return button;
+    }
+    static Button historyAction(Context c,String label,boolean clockwise,boolean enabled,Runnable action){
+        Button button=bandAction(c,label,enabled,action);
+        Drawable arrow=new HistoryArrow(button,clockwise);
+        arrow.setBounds(0,0,dp(c,13),dp(c,13));
+        button.setCompoundDrawablesRelative(arrow,null,null,null);
+        button.setCompoundDrawablePadding(dp(c,4));
+        button.setPadding(dp(c,7),dp(c,4),dp(c,7),dp(c,4));
+        return button;
+    }
+    static void bandHeading(LinearLayout parent,String title,String count,Button undo,Button redo,
+                            boolean canReload,Runnable reload,boolean canClear,Runnable clear){
+        Context c=parent.getContext();
+        LinearLayout top=new LinearLayout(c);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        parent.addView(top);
+        LinearLayout labels=column(c);
+        TextView label=text(c,title,19,INK,true);
+        if(android.os.Build.VERSION.SDK_INT>=28)label.setAccessibilityHeading(true);
+        labels.addView(label);
+        if(count!=null)labels.addView(text(c,count,13,MUTED,false));
+        top.addView(labels,part());
+        top.addView(undo); top.addView(redo);
+        Button reloadButton=bandAction(c,"Reload",canReload,reload);
+        reloadButton.setContentDescription("Reload starting filters");
+        Button clearButton=bandAction(c,"Clear",canClear,clear);
+        clearButton.setContentDescription("Clear filters");
+
+        int unspecified=View.MeasureSpec.makeMeasureSpec(0,View.MeasureSpec.UNSPECIFIED);
+        int needed=dp(c,8);
+        for(View element:new View[]{labels,undo,redo,reloadButton,clearButton}){
+            element.measure(unspecified,unspecified);
+            needed+=element.getMeasuredWidth();
+        }
+        int available=dp(c,Math.min(c.getResources().getConfiguration().screenWidthDp,720)-28);
+        LinearLayout actions=top;
+        if(needed>available){
+            actions=new LinearLayout(c);
+            actions.setGravity(Gravity.END);
+            parent.addView(actions,-1,-2);
+        }
+        actions.addView(reloadButton); actions.addView(clearButton);
+    }
+
+    private static final class HistoryArrow extends Drawable {
+        private final Button button;
+        private final boolean clockwise;
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Path head = new Path();
+
+        HistoryArrow(Button button, boolean clockwise) {
+            this.button = button;
+            this.clockwise = clockwise;
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(1.55f);
+            paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setStrokeJoin(Paint.Join.ROUND);
+            head.moveTo(4, 1.6f);
+            head.lineTo(4, 5);
+            head.lineTo(7.4f, 5);
+        }
+
+        @Override public void draw(Canvas canvas) {
+            canvas.save();
+            canvas.translate(getBounds().left, getBounds().top);
+            canvas.scale(getBounds().width() / 16f, getBounds().height() / 16f);
+            if (clockwise) canvas.scale(-1, 1, 8, 8);
+            paint.setColor(button.getCurrentTextColor());
+            canvas.drawArc(3, 3, 13, 13, 217, 290, false, paint);
+            canvas.drawPath(head, paint);
+            canvas.restore();
+        }
+
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(ColorFilter filter) { paint.setColorFilter(filter); }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    static Button presetActions(LinearLayout parent, boolean open, boolean canLoad, Runnable load,
+                                String device, boolean canSaveDevice, Runnable saveDevice,
+                                boolean canSavePhone, Runnable savePhone) {
+        Context c=parent.getContext();
+        LinearLayout actions=new LinearLayout(c);
+        parent.addView(actions);
+        Button browse=CompanionActions.buttonForSize(c,open?"Close preset list":"Load preset",false,load);
+        browse.setMinHeight(dp(c,48));
+        browse.setEnabled(canLoad);
+        actions.addView(browse,part());
+        Button save=CompanionActions.buttonForSize(c,"Save preset…",true,()->{
+            android.widget.PopupMenu menu=new android.widget.PopupMenu(c,actions.getChildAt(1));
+            boolean hardwareReady=Boolean.TRUE.equals(actions.getChildAt(1).getTag());
+            menu.getMenu().add(device).setEnabled(hardwareReady).setOnMenuItemClickListener(item->{saveDevice.run();return true;});
+            menu.getMenu().add("Save on this phone").setEnabled(canSavePhone).setOnMenuItemClickListener(item->{savePhone.run();return true;});
+            menu.show();
+        });
+        save.setMinHeight(dp(c,48));
+        save.setTag(canSaveDevice);
+        save.setEnabled(canSaveDevice || canSavePhone);
+        LinearLayout.LayoutParams params=part();
+        params.setMarginStart(dp(c,6));
+        actions.addView(save,params);
+        return save;
+    }
+    static void presetName(LinearLayout parent,String name) {
+        Context c=parent.getContext();
+        TextView title=text(c,name,21,INK,true);
+        if(android.os.Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);
+        title.setPadding(0,dp(c,8),0,dp(c,6));
+        parent.addView(title);
+    }
+    static void pairStage(LinearLayout parent,String label,String value,Runnable edit){
         Context c=parent.getContext();
         LinearLayout row=new LinearLayout(c);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0,dp(c,10),0,0);
-        row.addView(text(c,title,14,INK,true),part());
-        if(stereo){
-            row.addView(text(c,"Left",13,left(c,null),true));
-            TextView right=text(c,"Right",13,right(c),true);
-            right.setPadding(dp(c,12),0,0,0);row.addView(right);
-        }
+        LinearLayout labels=column(c);
+        labels.addView(text(c,label,16,INK,true));
+        labels.addView(text(c,value,13,MUTED,false));
+        row.addView(labels,part());
+        Button button=CompanionActions.buttonForSize(c,"Edit",false,edit);
+        quiet(button);
+        button.setContentDescription("Edit "+label);
+        button.setMinHeight(dp(c,48));
+        row.addView(button,dp(c,64),-2);
         parent.addView(row);
-    }
-    static void preset(LinearLayout parent,String name,boolean open,boolean enabled,Runnable toggleList){
-        Context c=parent.getContext();
-        LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);parent.addView(row);
-        LinearLayout identity=column(c);row.addView(identity,part());
-        identity.addView(text(c,"Current preset",13,MUTED,false));
-        TextView title=text(c,name,17,INK,true);title.setMaxLines(2);
-        title.setEllipsize(android.text.TextUtils.TruncateAt.END);identity.addView(title);
-        Button browse=CompanionActions.secondary(c,open?"Close preset list":"Load preset",toggleList);
-        quiet(browse);browse.setEnabled(enabled);row.addView(browse);
-    }
-    static void filterHeading(LinearLayout parent,String name,String count,boolean canReload,Runnable reload,
-                              boolean canClear,Runnable clear){
-        Context c=parent.getContext();
-        LinearLayout row=new LinearLayout(c);row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0,dp(c,10),0,dp(c,4));parent.addView(row);
-        LinearLayout labels=column(c);row.addView(labels,part());
-        TextView title=text(c,name,19,INK,true);
-        if(android.os.Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);
-        labels.addView(title);
-        if(count!=null)labels.addView(text(c,count,13,MUTED,false));
-        Button restore=CompanionActions.secondary(c,"Reload",reload);
-        restore.setMinWidth(dp(c,76));restore.setEnabled(canReload);row.addView(restore);
-        Button remove=CompanionActions.secondary(c,"Clear filters",clear);
-        remove.setEnabled(canClear);
-        LinearLayout.LayoutParams spacing=new LinearLayout.LayoutParams(-2,-2);
-        spacing.setMarginStart(dp(c,4));
-        row.addView(remove,spacing);
-    }
-    static Button saves(LinearLayout parent,String device,boolean canSave,Runnable saveDevice,String phone,boolean canSavePhone,Runnable savePhone){
-        Context c=parent.getContext();
-        LinearLayout actions=new LinearLayout(c);parent.addView(actions);
-        Button hardware=CompanionActions.buttonForSize(c,device,true,saveDevice);
-        hardware.setMinHeight(dp(c,48));hardware.setEnabled(canSave);actions.addView(hardware,part());
-        Button local=CompanionActions.buttonForSize(c,phone,false,savePhone);
-        local.setMinHeight(dp(c,48));local.setEnabled(canSavePhone);
-        LinearLayout.LayoutParams params=part();params.setMarginStart(dp(c,6));actions.addView(local,params);
-        return hardware;
+        divider(c,parent);
     }
     static void files(LinearLayout parent, boolean allowImport, boolean allowExport, Runnable read, Runnable write) {
         Context c=parent.getContext();
@@ -194,9 +409,12 @@ final class CompanionEditor {
             Context c=getContext();
             int gap=dp(c,2);
             int height=header?dp(c,32):dp(c,Math.max(48,32*c.getResources().getConfiguration().fontScale));
-            for(int i=0;i<views.length;i++){
-                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(i==0?dp(c,36):0,height-2*gap,WEIGHTS[i]);
-                lp.setMargins(gap,gap,gap,gap);addView(views[i]==null?new Space(c):views[i],lp);
+            for(int offset=1;offset<=views.length;offset++){
+                int i=offset%views.length;
+                LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(i==0?dp(c,48):0,
+                        header?height-2*gap:height,WEIGHTS[i]);
+                lp.setMargins(i==0?0:gap,gap,i==0?0:gap,gap);
+                addView(views[i]==null?new Space(c):views[i],lp);
             }
         }
     }

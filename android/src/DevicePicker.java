@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.hardware.usb.*;
 import android.net.Uri;
 import android.os.*;
+import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 import java.io.IOException;
@@ -34,7 +35,7 @@ public final class DevicePicker extends AppearanceActivity {
     private Set<String> knownBluetoothDevices;
     private String message="";
     private LinearLayout body;
-    private TextView linkedAudioStatus;
+    private final List<Runnable> bluetoothRows=new ArrayList<>();
     private final String permission="com.yinyangeq.companion.PICK_USB";
     private final BroadcastReceiver devices=new BroadcastReceiver(){
         public void onReceive(Context c,Intent intent){
@@ -107,7 +108,8 @@ public final class DevicePicker extends AppearanceActivity {
     private boolean allowed(){return Build.VERSION.SDK_INT<31 || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED;}
     private List<BluetoothDevice> pairedQudelixes(BluetoothAdapter adapter){
         List<BluetoothDevice> paired=new ArrayList<>(adapter.getBondedDevices());
-        paired.removeIf(device->!BluetoothPages.model(device.getName(),true)
+        paired.removeIf(device->(current==null || !current.radioMatches(device.getAddress()))
+                && !BluetoothPages.model(device.getName(),true)
                 && !BluetoothPages.model(device.getName(),false));
         return paired;
     }
@@ -142,10 +144,7 @@ public final class DevicePicker extends AppearanceActivity {
     }
     @Override boolean observesBluetoothAudio(){return body!=null;}
     @Override void bluetoothAudioChanged(){
-        if(linkedAudioStatus!=null && current!=null){
-            String address=current.bluetooth.isEmpty()?current.profile.address:current.bluetooth;
-            linkedAudioStatus.setText(BluetoothPages.audioState(this,address,current.profile.model==DeviceProfile.Model.PLUS));
-        }
+        for(Runnable row:bluetoothRows)row.run();
     }
     private void action(String name,Runnable click){
         Button b=CompanionActions.secondary(this,name,click);b.setEnabled(!usingBackup && !verifying && pending==null);body.addView(b,-1,-2);
@@ -153,15 +152,16 @@ public final class DevicePicker extends AppearanceActivity {
     private void draw(){
         if(body==null || isFinishing())return;
         body.removeAllViews();
-        linkedAudioStatus=null;
+        bluetoothRows.clear();
         LinearLayout top=new LinearLayout(this);top.setGravity(Gravity.CENTER_VERTICAL);body.addView(top);
         top.addView(text(this,"Devices",27,INK,true),new LinearLayout.LayoutParams(0,-2,1));
         top.addView(CompanionActions.secondary(this,"Theme",this::chooseTheme));
+        if(!message.isEmpty())label(message,15,false);
+        boolean linkedShown=drawBluetooth();
         if(current!=null){
-            label("Linked device",16,true);action(current.profile.model.label,()->enter(current));
+            label("Device link",16,true);
+            if(!linkedShown)action("Open "+current.profile.title(),()->enter(current));
             label(current.profile.bluetoothMacLabel(),14,false).setTextIsSelectable(true);
-            linkedAudioStatus=label("",14,false);bluetoothAudioChanged();
-            label("Selecting another device switches its EQ, presets and hardware controls together.",14,false);
             action("Unlink device",()->new AlertDialog.Builder(this).setTitle("Unlink "+current.profile.title()+"?")
                 .setMessage("Its drafts stay on this phone. Link the same device to open them again.")
                 .setPositiveButton("Unlink",(d,w)->unlink()).setNegativeButton("Cancel",null).show());
@@ -170,15 +170,6 @@ public final class DevicePicker extends AppearanceActivity {
             action("Use Auto EQ without a device",()->openTab(new Intent(this,LabActivity.class)
                     .putExtra(STANDALONE,true).putExtra("autoEq",true),-1));
         }
-        if(!message.isEmpty())label(message,15,false);
-        label("Local library",18,true);
-        action("Back up local library",()->pickLocalBackup(true));
-        action("Restore local library",()->pickLocalBackup(false));
-        if (ReportClient.available(this)) action("Report a bug", () -> {
-            org.json.JSONObject data = ReportClient.deviceDiagnostics();
-            if (current != null) ReportClient.field(data, "dac", current.profile.model.label);
-            ReportClient.show(this, "companion", data);
-        });
         label("USB",18,true);
         int count=0;
         UsbManager manager=usb();
@@ -187,22 +178,57 @@ public final class DevicePicker extends AppearanceActivity {
             count++;action("Qudelix USB · "+d.getDeviceName().substring(d.getDeviceName().lastIndexOf('/')+1),()->chooseUsb(d));
         }
         if(count==0)label("Connect a 5K Plus by USB to list it here.",14,false);
+        label("Local library",18,true);
+        action("Back up local library",()->pickLocalBackup(true));
+        action("Restore local library",()->pickLocalBackup(false));
+        if (ReportClient.available(this)) action("Report a bug", () -> {
+            org.json.JSONObject data = ReportClient.deviceDiagnostics();
+            if (current != null) ReportClient.field(data, "dac", current.profile.model.label);
+            ReportClient.show(this, "companion", data);
+        });
+    }
+    private boolean drawBluetooth(){
         label("Bluetooth",18,true);
         BluetoothAdapter adapter=BluetoothPages.adapter(this);
-        if(adapter==null){label("Bluetooth is unavailable on this phone.",14,false);return;}
-        if(!allowed()){action("Allow Nearby devices",()->requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},NEARBY));return;}
+        if(adapter==null){label("Bluetooth is unavailable on this phone.",14,false);return false;}
+        if(!allowed()){
+            label("Allow Nearby devices to see which Qudelix devices are paired.",14,false);
+            action("Allow Nearby devices",()->requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},NEARBY));
+            action("Bluetooth settings",this::openBluetoothSettings);
+            return false;
+        }
         try{
-            if(!adapter.isEnabled()){action("Turn on Bluetooth",()->systemPairing());return;}
-            List<BluetoothDevice> paired=pairedQudelixes(adapter);
-            boolean linkedIsPaired=current!=null && paired.removeIf(d->current.radioMatches(d.getAddress()));
-            paired.sort(Comparator.comparing(d->String.valueOf(d.getName()),String.CASE_INSENSITIVE_ORDER));
-            for(BluetoothDevice d:paired){
-                boolean plus=BluetoothPages.model(d.getName(),true);
-                action(d.getName()+"\n"+d.getAddress(),()->checkRadio(d,plus));
+            if(!adapter.isEnabled()){
+                label("Bluetooth is off.",14,false);
+                action("Turn on Bluetooth",this::systemPairing);
+                return false;
             }
-            if(paired.isEmpty())label(linkedIsPaired?"No other paired Qudelix devices.":"No paired Qudelix found.",14,false);
-            action("Pair in Android",this::systemPairing);
-        }catch(SecurityException e){label("Allow Nearby devices to list paired devices.",14,false);}
+            List<BluetoothDevice> paired=pairedQudelixes(adapter);
+            if(paired.isEmpty()){
+                label("No Qudelix paired.",14,false);
+                action("Pair a Qudelix",this::systemPairing);
+                return false;
+            }
+            paired.sort(Comparator.comparing(d->String.valueOf(d.getName()),String.CASE_INSENSITIVE_ORDER));
+            boolean linkedShown=false;
+            for(BluetoothDevice d:paired){
+                String address=d.getAddress();
+                boolean linked=current!=null && current.radioMatches(address);
+                boolean plus=linked?current.profile.model==DeviceProfile.Model.PLUS:BluetoothPages.model(d.getName(),true);
+                String title=plus?"Qudelix 5K Plus":"Qudelix 5K";
+                action((linked?"Open ":"Link ")+title,()->{if(linked)enter(current);else checkRadio(d,plus);});
+                TextView status=label("",14,false);
+                String outputAddress=Build.VERSION.SDK_INT>=28?address:paired.size()==1?null:address;
+                Runnable update=()->status.setText(BluetoothPages.pairedStatus(this,outputAddress,plus)
+                        +(linked?" · Linked in Companion":"")
+                        +(paired.size()>1?"\n"+address:""));
+                bluetoothRows.add(update);
+                update.run();
+                linkedShown|=linked;
+            }
+            action("Bluetooth settings",this::openBluetoothSettings);
+            return linkedShown;
+        }catch(SecurityException e){label("Allow Nearby devices to list paired devices.",14,false);return false;}
     }
     private void offerLocalRestore(){
         SharedPreferences preferences=getPreferences(MODE_PRIVATE);
@@ -286,7 +312,11 @@ public final class DevicePicker extends AppearanceActivity {
         });
     }
     private void systemPairing(){try{startActivity(BluetoothPages.pairing(this));}
-        catch(ActivityNotFoundException|SecurityException e){message="Open Bluetooth in Android Settings.";draw();}}
+        catch(ActivityNotFoundException|SecurityException e){openBluetoothSettings();}}
+    private void openBluetoothSettings(){
+        try{startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS));}
+        catch(ActivityNotFoundException|SecurityException e){message="Open Bluetooth in Android Settings.";draw();}
+    }
     @Override public void onRequestPermissionsResult(int code,String[] p,int[] r){
         super.onRequestPermissionsResult(code,p,r);
         if(code==NEARBY)refreshBluetooth();

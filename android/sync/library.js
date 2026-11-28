@@ -48,9 +48,9 @@ function peq(bank){
   return 'Preamp: '+Math.round(bank.preamp*10)/10+' dB\n'+rows.join('\n');
 }
 function channelPeq(channels){return channels.map((c,i)=>'Channel: '+(i?'R':'L')+'\n'+peq(c)).join('\n');}
-function use(title,shared,channels){
+function use(title,shared,channels,graph){
   const match=channels&&channelPeq(channels);
-  Phone.draft(JSON.stringify({name:title,shared:shared?peq(shared):'',match:match||''}));
+  Phone.draft(JSON.stringify({name:title,shared:shared?peq(shared):'',match:match||'',graph}));
 }
 function draftButton(label,load,parent){
  const button=btn(label,load,parent);button.disabled=standalone;return button;

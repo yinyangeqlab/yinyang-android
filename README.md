@@ -5,13 +5,13 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 | Download | Android version | Release |
 | --- | --- | --- |
 | [YingYangEQ App Manager](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-APK-Manager.apk) | 9 or later | v1.6.8 · Build 30 |
-| [YinYang Phone EQ](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Phone-EQ.apk) | 13 or later, with Shizuku | v0.3.7 · Build 14 |
+| [YinYang Phone EQ](https://github.com/yinyangeqlab/yinyang-android/releases/latest/download/YinYang-Phone-EQ.apk) | 13 or later, with Shizuku | v0.3.8 · Build 15 |
 
 [Android page and theme gallery](https://yinyangeq.com/android#install) · [Feature guide](FEATURES.md)
 
 ## Install or update
 
-In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.17.3 · Build 78). The launcher icon is labeled **YYEQ 5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates. Its list starts with App Manager, followed by Companion and Phone EQ. Each listing shows the Android app name. Use **Launch app** to open a verified installed Companion or Phone EQ.
+In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.17.4 · Build 79). The launcher icon is labeled **YYEQ 5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates. Its list starts with App Manager, followed by Companion and Phone EQ. Each listing shows the Android app name. Use **Launch app** to open a verified installed Companion or Phone EQ.
 
 Choose **System Wide PEQ** in App Manager or download the YinYang Phone EQ APK directly for system-wide equalization of Android media and games. Start Shizuku with wireless debugging, then allow Phone EQ in Shizuku. In the Companion fitter, pick Main EQ, Channel Match, or Paired EQ and choose **Open in Phone EQ**. [Setup and Quve credits](android-playback/)
 

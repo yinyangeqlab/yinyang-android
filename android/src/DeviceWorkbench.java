@@ -38,6 +38,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
     private String batteryEta=BatteryEstimate.UNAVAILABLE;
     private SeekBar androidBar;
     private CompanionEditor.Viewport scroll;
+    private CompanionEditor.StickyStages eqStages;
+    private EqGraphInputs graphInputs;
     private int drawnEditorGroup=-1;
     private String address, feedback = "";
     private boolean volumeLocked;
@@ -75,8 +77,11 @@ public final class DeviceWorkbench extends AppearanceActivity {
     private boolean presetsOpen, showFactory;
     private CompanionResponse inlinePlot;
     private FilterTable.SyncStatus inlineStatus;
-    private LinearLayout editorCommands,eqMenu;
+    private LinearLayout eqMenu;
+    private Button undoEditor, redoEditor, restoreEditor;
     private Button hardwareSave;
+    private PairFiles pairFiles;
+    private boolean pairedPage;
     private final java.util.ArrayList<View> frozenButtons=new java.util.ArrayList<>();
     private boolean verifiedInline;
     private void freezeButtons(View view){
@@ -158,6 +163,9 @@ public final class DeviceWorkbench extends AppearanceActivity {
     @Override
     public void onCreate(Bundle state) {
         super.onCreate(state);
+        pairFiles = new PairFiles(this, this::note, state);
+        graphInputs = new EqGraphInputs(this,getSharedPreferences("eq-response-inputs",MODE_PRIVATE),worker,this::draw);
+        pairedPage = state != null && state.getBoolean("pairedPage");
         records = getSharedPreferences("peq-workbench", MODE_PRIVATE);
         library = new PairedPresets(getSharedPreferences("paired-presets",MODE_PRIVATE));
         history = new PresetHistory(getSharedPreferences("peq-history", MODE_PRIVATE));
@@ -200,15 +208,21 @@ public final class DeviceWorkbench extends AppearanceActivity {
             return insets;
         });
         setContentView(root);
-        LabStyle.modelHeader(this,root,false,()->{if(!busy && !comparing)chooseTheme();else note("Finish the current operation to change theme.");},()->{if(!busy && !comparing)CompanionNavigation.go(this,LabStyle.DIAGNOSTICS,address);});
-        if(!audio)eqMenu=LabStyle.eqMenu(this,root,comparing ? LabStyle.BLIND : LabStyle.EQ,this::selectEqPage);
+        LinearLayout header = column();
+        LabStyle.modelHeader(this,header,false,()->{if(!busy && !comparing)chooseTheme();else note("Finish the current operation to change theme.");},()->{if(!busy && !comparing)CompanionNavigation.go(this,LabStyle.DIAGNOSTICS,address);});
+        if(!audio)eqMenu=LabStyle.eqMenu(this,header,comparing ? LabStyle.BLIND : LabStyle.EQ,this::selectEqPage);
+        if(audio)root.addView(header);
         FrameLayout content = new FrameLayout(this);
         root.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
-        {
-            scroll = new CompanionEditor.Viewport(this);
-            content.addView(scroll, -1, -1);
+        scroll = new CompanionEditor.Viewport(this);
+        content.addView(scroll,-1,-1);
+        LinearLayout container=CompanionEditor.pageBody(scroll);
+        if(!audio) {
+            container.addView(header);
+            eqStages=new CompanionEditor.StickyStages(content,scroll,container);
         }
-        body=CompanionEditor.pageBody(scroll);
+        body=column();
+        container.addView(body,-1,-2);
         body.setPadding(dp(12),dp(4),dp(12),dp(6));
         int tab = devicePage ? LabStyle.HEADPHONES : audio ? LabStyle.AUDIO : LabStyle.EQ;
         LabStyle.nav(this, root, tab, d -> {
@@ -231,7 +245,9 @@ public final class DeviceWorkbench extends AppearanceActivity {
             }
             SharedPreferences.Editor e=records.edit().remove(pairKey());
             for(int i=0;i<2;i++)if(stages[i]!=null)stageLocally(e,i,stages[i]);
-            e.apply();group=stages[0]==null?1:0;channel=0;loadWorkspace();feedback="Library draft loaded.";
+            e.apply();group=stages[0]==null?1:0;channel=0;loadWorkspace();
+            graphInputs.useFit(getIntent().getStringExtra("graphInputs"));
+            feedback="Library draft loaded.";
         }catch(IllegalArgumentException e){feedback=e.getMessage();}
     }
     private void importFromTuning() {
@@ -342,6 +358,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
     @Override
     protected void onSaveInstanceState(Bundle b) {
         super.onSaveInstanceState(b);
+        pairFiles.saveState(b);
+        b.putBoolean("pairedPage", pairedPage);
         b.putBoolean("presetsOpen",presetsOpen);
         b.putBoolean("usbPage",usbPage);
         b.putInt("audioPanel", audioPanel);
@@ -389,7 +407,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
 
     @Override boolean observesBluetoothAudio(){return devicePage;}
     @Override void bluetoothAudioChanged(){
-        if(bluetoothAudioStatus!=null)bluetoothAudioStatus.setText(BluetoothPages.audioState(this,address,false));
+        if(bluetoothAudioStatus!=null)bluetoothAudioStatus.setText(BluetoothPages.linkedStatus(this,address,false));
     }
 
     private void cancel() {
@@ -1058,9 +1076,10 @@ public final class DeviceWorkbench extends AppearanceActivity {
             .setPositiveButton("Open",(dialog,w)->{
                 PairedPresets.Stage[] stages=library.read(name);
                 if(stages==null || recoveryInEitherStage()){note("Finish pending hardware recovery before opening a pair.");return;}
+                Peq[] drafts={pairedDraft(0,stages[0]),pairedDraft(1,stages[1])};
                 SharedPreferences.Editor e=records.edit().putString(pairKey(),name);
-                stageLocally(e,0,stages[0]);stageLocally(e,1,stages[1]);e.apply();
-                Peq next = mapFileChannels(stages[group].eq);
+                storeStage(e,0,stages[0],drafts[0]);storeStage(e,1,stages[1],drafts[1]);e.apply();
+                Peq next = drafts[group];
                 edits[group].record(draft, next);
                 edits[1 - group].clear();
                 liveOnStage[1 - group] = address != null;
@@ -1082,6 +1101,66 @@ public final class DeviceWorkbench extends AppearanceActivity {
         }
         return false;
     }
+    private void selectEqStage(int stage) {
+        if (busy || routingPending()) return;
+        if (stage==2 && recoveryInEitherStage()) {
+            note("Finish recovery before viewing both stages.");
+            return;
+        }
+        boolean wasPair = pairedPage;
+        pairedPage = stage == 2;
+        if (wasPair == pairedPage && (pairedPage || stage == group)) return;
+        presetsOpen = false;
+        scroll.top();
+        if (!pairedPage && stage != group) changeGroup(stage);
+        else draw();
+    }
+
+    private void browsePairs() {
+        String[] choices = library.names();
+        if (choices.length == 0) {
+            note("No paired presets saved on this phone.");
+            return;
+        }
+        new AlertDialog.Builder(this).setTitle("Load paired EQ").setItems(choices,(dialog,item)->openPair(choices[item]))
+                .setNegativeButton("Cancel",null).show();
+    }
+
+    private void importPair(PairFiles.Pair file) {
+        // Read both stages completely before storing either. The original 5K has ten slots per channel.
+        Peq[] stages = file.forOriginal();
+        String title = PairFiles.uniqueTitle(file.title, candidate -> library.read(candidate) != null);
+        library.save(title, new PairedPresets.Stage[]{
+                new PairedPresets.Stage(stages[0],title,null),new PairedPresets.Stage(stages[1],title,null)}, null);
+        note(title + " saved on this phone. Use Load preset to open the pair.");
+    }
+
+    private void drawPair() {
+        PairedPresets.Stage main=stage(0), match=stage(1);
+        boolean ready=!busy && !recoveryInEitherStage();
+        boolean peq=main.eq.parametric() && match.eq.parametric();
+        CompanionEditor.presetName(body,records.getString(pairKey(),"Paired EQ"));
+        CompanionEditor.presetActions(body,false,ready,this::browsePairs,"Save to 5K",false,()->{},
+                ready && peq,this::savePair);
+        CompanionEditor.files(body,ready,ready && peq,pairFiles::pick,()->exportPair(main,match));
+        if (peq) {
+            CompanionEditor.graph(body,ResponseTraces.Stage.PAIR,graphInputs,new PeqResponse(main.eq,0),
+                    new PeqResponse(match.eq,0),new PeqResponse(match.eq,1));
+        }
+        CompanionEditor.pairStage(body,"Main EQ",componentName(main,0),()->selectEqStage(0));
+        CompanionEditor.pairStage(body,"Channel Match",componentName(match,1),()->selectEqStage(1));
+        text(body,"Save each stage to its own 5K slot. A paired file carries both stages together.",13);
+    }
+
+    private void exportPair(PairedPresets.Stage main, PairedPresets.Stage match) {
+        try {
+            pairFiles.write(new PairFiles.Pair(records.getString(pairKey(),componentName(main,0)),
+                    main.eq.exportText(),match.eq.exportText()));
+        } catch (IllegalArgumentException incompatible) {
+            note(incompatible.getMessage());
+        }
+    }
+
     private void reloadStage(){
         if(busy || routingPending() || session!=null && session.saveTarget>=0)return;
         Peq baseline=reloadPoint();
@@ -1106,9 +1185,19 @@ public final class DeviceWorkbench extends AppearanceActivity {
             setEditedDraft(draft.clearFilters());
     }
     private void stageLocally(SharedPreferences.Editor e,int g,PairedPresets.Stage stage) {
+        storeStage(e,g,stage,mapFileChannels(stage.eq));
+    }
+    private Peq pairedDraft(int g,PairedPresets.Stage stage) {
+        Peq portable=mapFileChannels(stage.eq);
+        String verified=records.getString(workspaceKey(g)+".confirmed",null);
+        Peq destination=recent!=null ? PeqSession.block(recent,g)
+                : verified!=null ? new Peq(g,Base64.getDecoder().decode(verified)) : null;
+        return destination==null ? portable : destination.withPortableSettings(portable);
+    }
+    private void storeStage(SharedPreferences.Editor e,int g,PairedPresets.Stage stage,Peq value) {
         String k=workspaceKey(g);
         e.remove(k + ".editUndo").remove(k + ".editRedo");
-        e.putString(k+".reload",enc(mapFileChannels(stage.eq))).putString(k+".draft",enc(mapFileChannels(stage.eq))).putBoolean(k+".staged",true)
+        e.putString(k+".reload",enc(value)).putString(k+".draft",enc(value)).putBoolean(k+".staged",true)
                 .putString(k+".title",stage.name).putString(k+".document",stage.uri);
     }
     private String usrSlotKey(int raw) {
@@ -1120,8 +1209,9 @@ public final class DeviceWorkbench extends AppearanceActivity {
         if(stages==null) {records.edit().remove(pairKey()).apply();return null;}
         if(recoveryInEitherStage()) return "Paired Channel Match is available after the pending hardware operation.";
         SharedPreferences.Editor e=records.edit().putString(pairKey(),name);
-        stageLocally(e,1,stages[1]);e.apply();
-        if(group==1) { draft=mapFileChannels(stages[1].eq); fileTitle=stages[1].name;
+        Peq match=pairedDraft(1,stages[1]);
+        storeStage(e,1,stages[1],match);e.apply();
+        if(group==1) { draft=match; fileTitle=stages[1].name;
             document=stages[1].uri==null?null:android.net.Uri.parse(stages[1].uri); }
         return "Paired Channel Match loaded as a draft · "+name;
     }
@@ -1556,7 +1646,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
     }
     private void draw() {
         if(eqMenu!=null)LabStyle.selectEqMenu(eqMenu,comparing ? LabStyle.BLIND : LabStyle.EQ);
-        int nextGroup=audio || comparing ? -1 : group;
+        int nextGroup=audio || comparing ? -1 : pairedPage ? 2 : group;
         if(nextGroup>=0 && nextGroup==drawnEditorGroup)scroll.preservePosition();
         drawnEditorGroup=nextGroup;
         body.removeAllViews();
@@ -1565,6 +1655,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         bluetoothAudioStatus = null;
         batteryEtaStatus = null;
         if (audio || comparing) {
+            if(eqStages!=null)eqStages.hide();
             LinearLayout heading = new LinearLayout(this);
             heading.setGravity(Gravity.CENTER_VERTICAL);
             body.addView(heading);
@@ -1574,15 +1665,26 @@ public final class DeviceWorkbench extends AppearanceActivity {
             heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
             if (comparing && !audition) action(heading, "Done", this::exitComparison, !busy);
         } else {
-            CompanionEditor.stages(body,group,false,g->{if(!busy && !routingPending() && g!=group)changeGroup(g);});
+            if (pairedPage && recoveryInEitherStage()) pairedPage=false;
+            eqStages.show(pairedPage ? 2 : group,this::selectEqStage);
+            if (pairedPage && !routingPending() && !recoveryInEitherStage()) {
+                drawPair();
+                if (!feedback.isEmpty()) text(body,feedback,13);
+                return;
+            }
             boolean canStore=!busy && fresh && session!=null && session.pending==null && session.saveTarget<0 && draft.parametric() && !routingPending();
             int active = session == null ? selected : session.originalSelector;
             String preset = active >= 22 && active < 42 ? slot(active - 22)
                     : active == 255 ? "Unsaved device EQ" : active >= 0 ? "Factory #" + active : fileTitle;
             if(fresh && (selected==255 || session!=null && !draft.same(session.original)))preset+=" · Unsaved";
-            CompanionEditor.preset(body,preset,presetsOpen,!busy && !routingPending(),
-                    ()->{presetsOpen=!presetsOpen;draw();});
-            hardwareSave=CompanionEditor.saves(body,"Save to 5K",canStore,this::chooseSave,"Save on this phone",!busy && !routingPending() && draft.parametric(),this::saveOnPhone);
+            CompanionEditor.presetName(body,preset);
+            inlineStatus=new FilterTable.SyncStatus(this,"5K");
+            body.addView(inlineStatus);
+            if(verifiedInline && fresh && session!=null && draft.same(session.confirmed))inlineStatus.verified();
+            else inlineStatus.message(fresh?"":"Draft on this phone");
+            hardwareSave=CompanionEditor.presetActions(body,presetsOpen,!busy && !routingPending(),
+                    ()->{presetsOpen=!presetsOpen;draw();},"Save to 5K",canStore,this::chooseSave,
+                    !busy && !routingPending() && draft.parametric(),this::saveOnPhone);
             boolean filesReady=!busy && !routingPending() && draft.parametric();
             CompanionEditor.files(body,filesReady && (session==null || session.saveTarget<0),filesReady,()->file(true),()->file(false));
 
@@ -1632,24 +1734,17 @@ public final class DeviceWorkbench extends AppearanceActivity {
             presetTools();
             return;
         }
-        CompanionEditor.responseTitle(body,group==0?"Main EQ response · dB":"Channel Match response · dB",group==1);
-        PeqResponse[] curves=new PeqResponse[draft.channels];
-        for(int ear=0;ear<curves.length;ear++)curves[ear]=new PeqResponse(draft,ear);
-        inlinePlot=new CompanionResponse(this,null,curves,CompanionEditor.left(this,records),CompanionEditor.right(this));
-        body.addView(inlinePlot,-1,dp(124));
-        inlineStatus=new FilterTable.SyncStatus(this);body.addView(inlineStatus);
-        if(verifiedInline && fresh && session!=null && draft.same(session.confirmed))inlineStatus.verified();
-        else inlineStatus.message(fresh?"":"Draft on phone");
-        LinearLayout commands = new LinearLayout(this);editorCommands=commands;
-        addCompact(commands, compactButton("Undo", () -> historyEdit(true), editable && history.canUndo(), false));
-        addCompact(commands, compactButton("Redo", () -> historyEdit(false), editable && history.canRedo(), false));
-        addCompact(commands, compactButton("Reset", this::restore, canReset(), false));
-        LinearLayout.LayoutParams commandPlacement = new LinearLayout.LayoutParams(-1, -2);
-        commandPlacement.topMargin = dp(5);
-        commandPlacement.bottomMargin = dp(3);
-        body.addView(commands, commandPlacement);
-        CompanionEditor.filterHeading(body,group==0?"Main PEQ filters":"Channel Match filters",null,
-                editable,this::reloadStage,editable && draft.hasFilters(),this::clearFilters);
+        if(group==0){
+            inlinePlot=CompanionEditor.graph(body,ResponseTraces.Stage.MAIN,graphInputs,new PeqResponse(draft,0));
+        }else{
+            inlinePlot=CompanionEditor.graph(body,ResponseTraces.Stage.MATCH,graphInputs,null,
+                    new PeqResponse(draft,0),new PeqResponse(draft,1));
+        }
+        undoEditor=CompanionEditor.historyAction(this,"Undo",false,editable && history.canUndo(),()->historyEdit(true));
+        redoEditor=CompanionEditor.historyAction(this,"Redo",true,editable && history.canRedo(),()->historyEdit(false));
+        restoreEditor=compactButton("Restore saved device EQ",this::restore,canReset(),false);
+        CompanionEditor.bandHeading(body,"Bands",null,undoEditor,redoEditor,editable,this::reloadStage,
+                editable && draft.hasFilters(),this::clearFilters);
         for(int ear=0;ear<draft.channels;ear++){
             if(group==1 && !CompanionEditor.visibleEar(records,ear))continue;
             final int ch=ear;
@@ -1679,6 +1774,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
         presetTools();
     }
     private void presetTools(){
+        if(draft.parametric() && !pairedPage && restoreEditor!=null && restoreEditor.getParent()==null)
+            addEditorBlock(restoreEditor);
         Button tools=compactButton("Preset tools",null,!busy && !routingPending(),false);
         tools.setOnClickListener(this::editorTools);
         addEditorBlock(tools);
@@ -1860,9 +1957,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
         edits[group].record(draft,next);
         draft=next;verifiedInline=false;liveOnStage[group]=fresh;
         records.edit().putBoolean(key()+".staged",true).apply();keepDraft();
-        PeqResponse[] curves=new PeqResponse[draft.channels];
-        for(int i=0;i<curves.length;i++)curves[i]=new PeqResponse(draft,i);
-        inlinePlot.update(null,curves);
+        if(group==0)inlinePlot.update(new PeqResponse(draft,0),new PeqResponse[0]);
+        else inlinePlot.update(null,new PeqResponse[]{new PeqResponse(draft,0),new PeqResponse(draft,1)});
         if(!busy){
             updateInlineCommands();
             if(fresh && session!=null)applyLiveEq(true);
@@ -1870,10 +1966,11 @@ public final class DeviceWorkbench extends AppearanceActivity {
         }
     }
     private void updateInlineCommands(){
-        editorCommands.getChildAt(0).setEnabled(edits[group].canUndo());
-        editorCommands.getChildAt(1).setEnabled(edits[group].canRedo());
-        editorCommands.getChildAt(2).setEnabled(canReset());
-        hardwareSave.setEnabled(fresh && session!=null && session.saveTarget<0 && session.pending==null);
+        undoEditor.setEnabled(edits[group].canUndo());
+        redoEditor.setEnabled(edits[group].canRedo());
+        restoreEditor.setEnabled(canReset());
+        hardwareSave.setTag(fresh && session!=null && session.saveTarget<0 && session.pending==null);
+        hardwareSave.setEnabled(draft.parametric() && !routingPending());
     }
     private void setEditedDraft(Peq next) {
         if (draft.same(next)) return;
@@ -2043,6 +2140,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
     protected void onActivityResult(int request, int result, Intent intent) {
         super.onActivityResult(request, result, intent);
         if (TuningActivity.originalResult(this,request,result,intent)) return;
+        if (pairFiles.result(request,result,intent,worker,this::importPair) || graphInputs.result(request,result,intent)) return;
         readingFile = false;
         if (result != RESULT_OK || intent == null || intent.getData() == null) {
             busy = false;
@@ -2369,14 +2467,14 @@ public final class DeviceWorkbench extends AppearanceActivity {
     private TextView bluetoothAudioStatus;
     private void drawAudioDevice() {
         DeviceLevels reading = levels;
-        bluetoothAudioStatus=text(body,BluetoothPages.audioState(this,address,false),15);
+        bluetoothAudioStatus=text(body,BluetoothPages.linkedStatus(this,address,false),15);
         addEditorBlock(settingButton("Connect",()->startActivity(new Intent(this,ProbeActivity.class).putExtra("connectRadio",true)),!busy));
         if(binding()!=null){
             DeviceProfile profile=binding().profile;
             text(body,profile.model.label,15);
             text(body,profile.bluetoothMacLabel(),14).setTextIsSelectable(true);
         }
-        addEditorBlock(settingButton("Manage linked device",()->DeviceBinding.manage(this),!busy || statusPoll));
+        addEditorBlock(settingButton("Bluetooth & devices",()->DeviceBinding.manage(this),!busy || statusPoll));
         if(reading!=null && audioLink!=null && !disconnected){
             addEditorBlock(settingButton("Turn off automatic pairing",()->{},false));
             text(body,"The companion cannot change Bluetooth pairing mode on the original 5K. Use the pairing controls on the 5K itself.",14);

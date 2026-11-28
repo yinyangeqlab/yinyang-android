@@ -37,6 +37,19 @@ final class Peq {
     Peq copy() {
         return new Peq(group, bytes);
     }
+    /** Apply portable settings without changing the destination bank's opaque bytes. */
+    Peq withPortableSettings(Peq source) {
+        require(group == source.group && source.parametric(), "Choose a matching parametric EQ stage.");
+        Peq result = copy();
+        result.bytes[0] |= 1;
+        result.metadata(source.xfeed(), source.impedance(), source.sensitivity());
+        for (int ear = 0; ear < channels; ear++) {
+            result.pre(ear, source.pre(ear));
+            for (int band = 0; band < 10; band++)
+                result.band(ear, band, source.type(ear,band), source.hz(ear,band), source.gain(ear,band), source.q(ear,band));
+        }
+        return result;
+    }
     Peq swapChannels() {
         require(group == 1 && parametric(), "Channel routing needs a left/right speaker PEQ.");
         Peq result = copy();

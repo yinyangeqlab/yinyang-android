@@ -1,6 +1,6 @@
 # Rebuild the Android release
 
-The signed release contains YYEQ 5K 0.17.3 (build 78), YYEQ PhoneEQ 0.3.7 (build 14), and YYEQ App Manager 1.6.8 (build 30). Use Android SDK Platform 36, Build Tools 36.0.0, JDK 21, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
+The signed release contains YYEQ 5K 0.17.4 (build 79), YYEQ PhoneEQ 0.3.8 (build 15), and YYEQ App Manager 1.6.8 (build 30). Use Android SDK Platform 36, Build Tools 36.0.0, JDK 21, Python 3, Node 26.12.0, npm 12.2.1 and esbuild 0.28.2.
 
 From this repository's root, stage the pinned offline EQ engine and install esbuild.
 

@@ -514,6 +514,9 @@ function startFit(m,t,match,run,button){
      if(!data.choices || !result)return;
      stopJob();
      comparison={version:2,time:Date.now(),name:m.name,fitDetails,target:t.name,mainOnly:!match,result,allowed,choices:data.choices,raw:m.points,targetPoints:t.points};
+     if(m.leftPoints?.length && m.rightPoints?.length)comparison.stereo={
+       left:m.leftPoints,right:m.rightPoints,leftLevel:m.leftLevelDb,rightLevel:m.rightLevelDb
+     };
      const saved=Phone.rememberComparison(JSON.stringify(comparison));restoreOpened=true;draw();
      if(saved===false)status('The comparison is open. This phone could not save it locally.');
      window.scrollTo(0,0);
@@ -522,6 +525,15 @@ function startFit(m,t,match,run,button){
  }catch(err){failed('Could not start the fitter. Try again.');}
 }
 function renderComparison(saved,parent){
+ const reduceCurve=points=>!points || points.length<=161?points:Array.from({length:161},(_,i)=>{
+   const hz=i===160?points[points.length-1][0]:points[0][0]*(points[points.length-1][0]/points[0][0])**(i/160);
+   return [Number(hz.toFixed(4)),Number(Curves.at(points,hz).toFixed(4))];
+ });
+ const graph={name:saved.name,targetName:saved.target,points:reduceCurve(saved.raw),target:reduceCurve(saved.targetPoints)};
+ if(saved.stereo)Object.assign(graph,{
+   leftPoints:reduceCurve(saved.stereo.left),rightPoints:reduceCurve(saved.stereo.right),
+   leftLevelDb:saved.stereo.leftLevel,rightLevelDb:saved.stereo.rightLevel
+ });
  const {result,allowed}=saved,valid=allowed.map(i=>({i,c:result.ranked[i]}));
  const {options}=result;
  const ordered=(a,b)=>a.c.rms-b.c.rms||a.c.peak-b.c.peak||a.c.count-b.c.count;
@@ -595,9 +607,9 @@ function renderComparison(saved,parent){
    if(c){
      const u=result.user[c.ui],title=saved.name+' · '+opt.label;
      el('p',match.label+' · '+[u.filters.length,...match.channels.map(ear=>ear.filters.length)].join(' / ')+' filters (Main / Left / Right)',box);
-     draftButton('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels),box).className='fit-primary';
+     draftButton('Review in Filters',()=>use(title,u,saved.mainOnly?null:match.channels,graph),box).className='fit-primary';
      if(matchPreset){
-       draftButton('Review Channel Match only',()=>use(title,null,match.channels),box);
+       draftButton('Review Channel Match only',()=>use(title,null,match.channels,graph),box);
      }
      if(linked && library.writable)btn('Save fit to My Collection',()=>saveEntry({action:'eq',name:title.slice(0,100),filters:u.filters,preamp:u.preamp,
        ...(match.label==='No channel correction'?{}:{match:{channelMatchMode:'custom',channelMatchPreset:{channels:match.channels.map(c=>({filters:c.filters,preampDb:c.preamp}))}}})}),box);

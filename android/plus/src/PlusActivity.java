@@ -66,6 +66,8 @@ public final class PlusActivity extends AppearanceActivity {
     private String awaitingExport;
     private CompanionEditor.Viewport scroll;
     private LinearLayout eqBody;
+    private CompanionEditor.StickyStages eqStages;
+    private EqGraphInputs graphInputs;
     private PlusConnection connection;
     private PlusLevels levels;
     private PlusAudioPanel audioPanel;
@@ -86,7 +88,8 @@ public final class PlusActivity extends AppearanceActivity {
 
     private PlusLibrary catalogue;
     private int pairFirst=-1;
-    private boolean presetsOpen, showFactory, loadTogether;
+    private boolean presetsOpen, showFactory, loadTogether, pairedPage;
+    private PairFiles pairFiles;
     private boolean requestCatalogue;
     private boolean loadingLinkedEq;
     private String initialEqMessage="Connect your linked 5K Plus to read its active EQ.";
@@ -97,6 +100,9 @@ public final class PlusActivity extends AppearanceActivity {
         SharedPreferences appearance = getSharedPreferences("appearance", MODE_PRIVATE);
         if (!appearance.contains("theme")) appearance.edit().putInt("theme", 1).apply();
         super.onCreate(state);
+        pairFiles = new PairFiles(this, this::showPairMessage, state);
+        graphInputs = new EqGraphInputs(this,getSharedPreferences("eq-response-inputs",MODE_PRIVATE),io,()->render(true));
+        pairedPage = state != null && state.getBoolean("pairedPage");
         phoneMedia=new PhoneMediaHandoff(this);
         storage = getSharedPreferences("plus-presets-v1", MODE_PRIVATE);
         if(binding()!=null && !binding().lease.equals(storage.getString("editLease","")))
@@ -168,6 +174,8 @@ public final class PlusActivity extends AppearanceActivity {
 
     @Override protected void onSaveInstanceState(Bundle state) {
         super.onSaveInstanceState(state);
+        pairFiles.saveState(state);
+        state.putBoolean("pairedPage",pairedPage);
         state.putInt("page", page);
         state.putBoolean("presetsOpen",presetsOpen);
         state.putInt("bank", currentBank);
@@ -248,17 +256,27 @@ public final class PlusActivity extends AppearanceActivity {
             systemBarInsets(view, view.getPaddingTop(), view.getPaddingBottom(), view.getPaddingLeft(), view.getPaddingRight());
             return insets;
         });
-        LabStyle.modelHeader(this,screen,true,()->{
+        LinearLayout header=column();
+        LabStyle.modelHeader(this,header,true,()->{
             if(applying || blindBusy)toast("Wait for the device operation to finish before changing theme.");
             else chooseTheme();
         },()->navigate(DIAGNOSTICS));
-        if(page==0 || page==BLIND_PAGE) LabStyle.eqMenu(this,screen,page==BLIND_PAGE?LabStyle.BLIND:EQ,this::navigate);
+        if(page==0 || page==BLIND_PAGE) LabStyle.eqMenu(this,header,page==BLIND_PAGE?LabStyle.BLIND:EQ,this::navigate);
+        if(page!=0)screen.addView(header);
 
-        scroll = new CompanionEditor.Viewport(this);
+        android.widget.FrameLayout pane=new android.widget.FrameLayout(this);
+        screen.addView(pane,new LinearLayout.LayoutParams(-1,0,1));
+        scroll=new CompanionEditor.Viewport(this);
         scroll.setFillViewport(true);
-        screen.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        LinearLayout body = CompanionEditor.pageBody(scroll);
-        body.setPadding(dp(14), dp(6), dp(14), dp(18));
+        pane.addView(scroll,-1,-1);
+        LinearLayout container=CompanionEditor.pageBody(scroll);
+        if(page==0){
+            container.addView(header);
+            eqStages=new CompanionEditor.StickyStages(pane,scroll,container);
+        }else eqStages=null;
+        LinearLayout body=column();
+        container.addView(body,-1,-2);
+        body.setPadding(dp(14),dp(6),dp(14),dp(18));
         if (page == 0) {eqBody=body;renderEq(body);}
         if (page == 2) {
             add(body, text("Connection", 24, INK, true), 6);
@@ -428,21 +446,115 @@ public final class PlusActivity extends AppearanceActivity {
                 .setType("text/plain").putExtra(Intent.EXTRA_TITLE,filename),EXPORT);
         } catch(android.content.ActivityNotFoundException e) { awaitingExport=null;toast("No document picker is available."); }
     }
-    private void stageTabs(LinearLayout screen) {
-        int active=mode==PlusPreset.Mode.SHARED?2:currentBank;
-        CompanionEditor.stages(screen,active,true,stage->{
-            PlusPreset.Mode next=stage==2?PlusPreset.Mode.SHARED:PlusPreset.Mode.LAYERED;
-            if(next!=mode){
-                try{PlusPreset.banks(next,mainFor(next),draft[1],draft[2],true);}
-                catch(IllegalArgumentException error){showError(error.getMessage());return;}
-            }
-            pairFirst=-1;loadTogether=false;currentBank=stage==1?1:0;
-            if(next!=mode){
-                switchMode(next);
-                saveDraft();
-            }
-            render(false);
-        });
+    private void stageTabs() {
+        int active = pairedPage ? 2 : mode == PlusPreset.Mode.SHARED ? 0 : currentBank;
+        eqStages.show(active,this::selectEqStage);
+    }
+
+    private void selectEqStage(int stage) {
+        if (libraryBusy || blind.active() || blindBusy || swapPending() || channelSwapBusy) return;
+        if (stage==1 && mode==PlusPreset.Mode.SHARED) {
+            editPairedStage(stage);
+            return;
+        }
+        pairedPage=stage==2;
+        if (!pairedPage) currentBank=stage;
+        pairFirst=-1;
+        loadTogether=false;
+        presetsOpen=false;
+        render(false);
+    }
+
+    private void editPairedStage(int stage) {
+        if (libraryBusy || applying || blind.active() || blindBusy || swapPending() || channelSwapBusy) return;
+        if (mode==PlusPreset.Mode.LAYERED) {
+            selectEqStage(stage);
+            return;
+        }
+        String target=stage==0?"the paired Main EQ":"Channel Match";
+        new AlertDialog.Builder(this).setTitle("Edit "+target+"?")
+                .setMessage("Switch the 5K Plus to Main EQ with Channel Match. Your 30-band draft is kept on this phone.")
+                .setPositiveButton("Switch mode",(dialog,which)->changeEqMode(PlusPreset.Mode.LAYERED,stage))
+                .setNegativeButton("Cancel",null).show();
+    }
+
+    private void changeEqMode(PlusPreset.Mode next, int stage) {
+        if (libraryBusy || applying || blind.active() || blindBusy || swapPending() || channelSwapBusy) return;
+        if (next!=mode) {
+            try { PlusPreset.banks(next,mainFor(next),draft[1],draft[2],true); }
+            catch(IllegalArgumentException error) { showError(error.getMessage()); return; }
+            switchMode(next);
+            saveDraft();
+        }
+        pairedPage=false;
+        currentBank=stage;
+        presetsOpen=false;
+        pairFirst=-1;
+        loadTogether=false;
+        render(false);
+    }
+
+    private void chooseEqMode() {
+        new AlertDialog.Builder(this).setTitle("EQ mode")
+                .setSingleChoiceItems(new String[]{"Main EQ with Channel Match","30-band Main only"},
+                        mode==PlusPreset.Mode.LAYERED?0:1,(dialog,which)->{
+                            dialog.dismiss();
+                            changeEqMode(which==0?PlusPreset.Mode.LAYERED:PlusPreset.Mode.SHARED,0);
+                        }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void showPairMessage(String message) {
+        new AlertDialog.Builder(this).setTitle("Paired EQ").setMessage(message)
+                .setPositiveButton("Close",null).show();
+    }
+
+    private void importPair(PairFiles.Pair file) {
+        PlusPreset.Channel[] channels = file.forPlus();
+        PlusPreset.Channel main = channels[0];
+        PlusPreset.Channel[] match = {channels[1],channels[2]};
+        String title=PairFiles.uniqueTitle(file.title,candidate->storage.contains("preset:"+candidate));
+        try {
+            String saved=new JSONObject().put("name",title).put("mode",PlusPreset.Mode.LAYERED.name())
+                    .put("usrName",title).put("spkName",title)
+                    .put("shared",PlusPreset.file(new PlusPreset.Channel[]{main},Math.max(1,main.bands.size())))
+                    .put("match",PlusPreset.file(match,Math.max(1,Math.max(match[0].bands.size(),match[1].bands.size()))))
+                    .toString();
+            storage.edit().putString("preset:"+title,saved).apply();
+            showPairMessage(title+" saved on this phone. Use Load preset to open the pair.");
+            if (page==0) render(true);
+        } catch (JSONException impossible) {
+            throw new IllegalArgumentException("Could not save the paired EQ.",impossible);
+        }
+    }
+
+    private void exportPair() {
+        try {
+            PlusPreset.Channel main=mainFor(PlusPreset.Mode.LAYERED);
+            PlusPreset.banks(PlusPreset.Mode.LAYERED,main,draft[1],draft[2],true);
+            String mainText=PlusPreset.file(new PlusPreset.Channel[]{main},Math.max(1,main.bands.size()));
+            String matchText=PlusPreset.file(new PlusPreset.Channel[]{draft[1],draft[2]},
+                    Math.max(1,Math.max(draft[1].bands.size(),draft[2].bands.size())));
+            pairFiles.write(new PairFiles.Pair(name,mainText,matchText));
+        } catch(IllegalArgumentException incompatible) {
+            showPairMessage(incompatible.getMessage());
+        }
+    }
+
+    private void renderPair(LinearLayout body) {
+        boolean layered=mode==PlusPreset.Mode.LAYERED;
+        boolean ready=!libraryBusy && !applying && !blind.active() && !blindBusy && !swapPending() && !channelSwapBusy;
+        CompanionEditor.presetName(body,name.isEmpty()?"Paired EQ":name);
+        CompanionEditor.presetActions(body,presetsOpen,ready,()->{
+            presetsOpen=!presetsOpen; render(true);
+        },"Save pair to 5K Plus",layered && ready && writable(),()->saveDevicePreset(PlusLibrary.PAIR),
+                layered && ready,this::saveNamed);
+        CompanionEditor.files(body,ready,ready,pairFiles::pick,this::exportPair);
+        if (presetsOpen) renderPresets(body);
+        if(!layered) add(body,text("30-band Main only is active. This graph shows the saved layered drafts.",14,MUTED,false),6);
+        CompanionEditor.graph(body,ResponseTraces.Stage.PAIR,graphInputs,PlusPreset.response(mainFor(PlusPreset.Mode.LAYERED),48000),
+                PlusPreset.response(draft[1],48000),PlusPreset.response(draft[2],48000));
+        CompanionEditor.pairStage(body,"Main EQ",stageNames[0].isEmpty()?"Main EQ draft":stageNames[0],()->editPairedStage(0));
+        CompanionEditor.pairStage(body,"Channel Match",stageNames[1].isEmpty()?"Channel Match draft":stageNames[1],()->editPairedStage(1));
     }
 
     private void firstLinkedEq(){
@@ -470,10 +582,15 @@ public final class PlusActivity extends AppearanceActivity {
         });
     }
     private void renderEq(LinearLayout body) {
+        syncLabel=null;
+        undoEdit=redoEdit=null;
         if(!storage.contains("draft")){
+            eqStages.hide();
             add(body,text(loadingLinkedEq?"Reading active EQ from your linked 5K Plus…":
                     connection.status!=null && !writable()?"The EQ editor requires Plus firmware 1.0.3.":initialEqMessage,15,INK,false),8);
             if(writable() && !loadingLinkedEq)add(body,button("Read active EQ",false,()->{firstLinkedEq();render(true);}),8);
+            add(body,button("Import paired EQ",false,pairFiles::pick),8);
+            if (storage.getAll().keySet().stream().anyMatch(key->key.startsWith("preset:"))) renderPresets(body);
             return;
         }
         boolean layered = mode == PlusPreset.Mode.LAYERED;
@@ -483,31 +600,35 @@ public final class PlusActivity extends AppearanceActivity {
         int limit = !layered ? 30 : bank == 0
                 ? PlusPreset.sharedCapacity(draft[1], draft[2]) : PlusPreset.matchCapacity(draft[0]);
         int saveGroup=layered?bank:2;
-        stageTabs(body);
+        stageTabs();
+        if (pairedPage) { renderPair(body); return; }
         String preset = stageNames[saveGroup].isEmpty() ? (name.isEmpty() ? "Phone draft" : name) : stageNames[saveGroup];
-        CompanionEditor.preset(body,preset,presetsOpen,true,
-                ()->{presetsOpen=!presetsOpen;render(true);});
-        CompanionEditor.saves(body,"Save to 5K Plus",writable(),()->nameDevicePreset(saveGroup),"Save on this phone",true,this::saveNamed);
+        CompanionEditor.presetName(body,preset);
+        syncLabel=new FilterTable.SyncStatus(this,"5K Plus");
+        syncText(syncMessage);
+        add(body,syncLabel,0);
+        if(bank==0) {
+            Button modeButton=CompanionActions.buttonForSize(this,
+                    layered?"EQ mode · Main EQ with Channel Match":"EQ mode · 30-band Main only",false,this::chooseEqMode);
+            LabStyle.quiet(modeButton);
+            modeButton.setGravity(Gravity.START|Gravity.CENTER_VERTICAL);
+            modeButton.setMinHeight(dp(48));
+            modeButton.setEnabled(!libraryBusy && !applying && !blindBusy);
+            body.addView(modeButton,-1,-2);
+        }
+        CompanionEditor.presetActions(body,presetsOpen,true,()->{presetsOpen=!presetsOpen;render(true);},
+                "Save to 5K Plus",writable(),()->nameDevicePreset(saveGroup),true,this::saveNamed);
         eqFiles(body,bank);
         if(presetsOpen)renderPresets(body);
-        CompanionEditor.responseTitle(body,layered?"Combined response · dB":"Main EQ response · dB",layered);
-        PeqResponse[] ears=layered ? new PeqResponse[]{PlusPreset.response(draft[1],48000),PlusPreset.response(draft[2],48000)} : new PeqResponse[1];
-        responsePlot=new CompanionResponse(this,PlusPreset.response(draft[0],48000),ears,CompanionEditor.left(this,storage),CompanionEditor.right(this));
-        body.addView(responsePlot, new LinearLayout.LayoutParams(-1, dp(124)));
-        syncLabel = new FilterTable.SyncStatus(this);
-        syncText(syncMessage);
-        add(body, syncLabel, 3);
+        responsePlot=CompanionEditor.graph(body,bank==0?ResponseTraces.Stage.MAIN:ResponseTraces.Stage.MATCH,graphInputs,
+                bank==0?PlusPreset.response(draft[0],48000):null,responseChannels(bank));
 
-        LinearLayout historyRow = new LinearLayout(this);
-        undoEdit = CompanionActions.secondary(this,"Undo",()->moveEdit(true));
-        redoEdit = CompanionActions.secondary(this,"Redo",()->moveEdit(false));
-        historyRow.addView(undoEdit,new LinearLayout.LayoutParams(0,-2,1));
-        historyRow.addView(redoEdit,new LinearLayout.LayoutParams(0,-2,1));
-        body.addView(historyRow);
+        undoEdit=CompanionEditor.historyAction(this,"Undo",false,true,()->moveEdit(true));
+        redoEdit=CompanionEditor.historyAction(this,"Redo",true,true,()->moveEdit(false));
         showHistoryState();
         boolean canEditPage=!libraryBusy && !blind.active() && !blindBusy;
-        CompanionEditor.filterHeading(body,bank!=0?"Channel Match filters":layered?"Main PEQ filters":"30-band PEQ filters",
-                bank==0?used+" / "+limit+" bands":null,canEditPage,()->reloadStage(saveGroup),
+        CompanionEditor.bandHeading(body,"Bands",bank==0?used+" of "+limit+" bands":null,undoEdit,redoEdit,
+                canEditPage,()->reloadStage(saveGroup),
                 canEditPage && (used>0 || bank!=0 && !draft[2].bands.isEmpty()),()->clearFilters(saveGroup));
         for(int i=bank==0?0:1;i<=(bank==0?0:2);i++){
             if(i>0 && !CompanionEditor.visibleEar(storage,i-1))continue;
@@ -595,7 +716,7 @@ public final class PlusActivity extends AppearanceActivity {
     }
     private void renderPresets(LinearLayout body) {
         LinearLayout device=column();body.addView(device);
-        int stage=mode==PlusPreset.Mode.SHARED?2:currentBank;
+        int stage=mode==PlusPreset.Mode.SHARED?2:pairedPage?0:currentBank;
         int g=loadTogether && pairFirst!=-1?1:stage;
         add(device,text("Device presets · "+PlusLibrary.GROUPS[g],16,INK,true),4);
         if(catalogue==null && writable() && !applying && !requestCatalogue && !libraryBusy){
@@ -677,7 +798,8 @@ public final class PlusActivity extends AppearanceActivity {
     private TextView bluetoothAudioStatus;
     @Override void bluetoothAudioChanged(){
         if(bluetoothAudioStatus==null)return;
-        String state=BluetoothPages.audioState(this,connection.address(),true);
+        String address=binding()!=null && !binding().bluetooth.isEmpty()?binding().bluetooth:connection.address();
+        String state=BluetoothPages.linkedStatus(this,address,true);
         bluetoothAudioStatus.setText(state);
         bluetoothAudioStatus.setVisibility(state.equalsIgnoreCase(connection.label)?View.GONE:View.VISIBLE);
     }
@@ -697,7 +819,7 @@ public final class PlusActivity extends AppearanceActivity {
             mac.setTextIsSelectable(true);
             add(status,mac,4);
         }
-        Button manage=button("Manage linked device",false,()->DeviceBinding.manage(this));
+        Button manage=button("Bluetooth & devices",false,()->DeviceBinding.manage(this));
         manage.setEnabled(!applying && !libraryBusy);add(status,manage,8);
         if (connection.status != null) {
             pairingButton=button("Turn off automatic pairing",false,this::changePairing);
@@ -933,10 +1055,14 @@ public final class PlusActivity extends AppearanceActivity {
     }
 
     private void saveInline(){
-        boolean layered=mode==PlusPreset.Mode.LAYERED;
-        responsePlot.update(PlusPreset.response(draft[0],48000),layered?
-                new PeqResponse[]{PlusPreset.response(draft[1],48000),PlusPreset.response(draft[2],48000)}:new PeqResponse[1]);
+        int bank=mode==PlusPreset.Mode.LAYERED?currentBank:0;
+        responsePlot.update(bank==0?PlusPreset.response(draft[0],48000):null,responseChannels(bank));
         saveFilterEdit(true);
+    }
+
+    private PeqResponse[] responseChannels(int bank) {
+        return bank==0?new PeqResponse[0]
+                :new PeqResponse[]{PlusPreset.response(draft[1],48000),PlusPreset.response(draft[2],48000)};
     }
     private int editStage(){return mode==PlusPreset.Mode.SHARED?2:currentBank;}
     private org.json.JSONArray editSteps(String key) {
@@ -1059,6 +1185,7 @@ public final class PlusActivity extends AppearanceActivity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (pairFiles.result(request,result,data,io,this::importPair) || graphInputs.result(request,result,data)) return;
         if(request==PlusBlindPanel.FIRST_FILE || request==PlusBlindPanel.SECOND_FILE){
             if(result!=RESULT_OK || data==null || data.getData()==null)return;
             Uri uri=data.getData();
@@ -1099,7 +1226,8 @@ public final class PlusActivity extends AppearanceActivity {
                 switchMode(layout);draft=next;
                 if(!tuning.isEmpty())rememberStages(mode==PlusPreset.Mode.SHARED?2:0);
                 if(match!=null && !match.isEmpty())rememberStages(1);
-                name=data.getStringExtra("tuningName");currentBank=tuning.isEmpty()?1:0;page=0;
+                name=data.getStringExtra("tuningName");currentBank=tuning.isEmpty()?1:0;page=0;pairedPage=false;
+                graphInputs.useFit(data.getStringExtra("graphInputs"));
                 storage.edit().putString("draft",draftJson()).remove("pendingRevision").apply();
                 String id=data.getStringExtra("tuningId");
                 if(id!=null && !id.isEmpty())getSharedPreferences("peq-workbench",MODE_PRIVATE).edit().putString("receivedTuningId",id).apply();
