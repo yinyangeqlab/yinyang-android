@@ -11,9 +11,11 @@ One companion supports the original Qudelix 5K and the Qudelix 5K Plus. Link one
 
 ## Install or update
 
-In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.17.3 · Build 76). The launcher icon is labeled **YYEQ 5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates. Its list starts with App Manager, followed by Companion and Phone EQ. Each listing shows the Android app name. Use **Launch app** to open a verified installed Companion or Phone EQ.
+In App Manager, choose **YinYangEQ Companion App for Qudelix 5K and 5K Plus** (v0.17.3 · Build 77). The launcher icon is labeled **YYEQ 5K**. App Manager checks each download against its package, release version, SHA-256 and Lab signing certificate. Choose **Install…**, select the verified APK in Android Files and confirm the installation. App Manager also checks for its own updates. Its list starts with App Manager, followed by Companion and Phone EQ. Each listing shows the Android app name. Use **Launch app** to open a verified installed Companion or Phone EQ.
 
 Choose **System Wide PEQ** in App Manager or download the YinYang Phone EQ APK directly for system-wide equalization of Android media and games. Start Shizuku with wireless debugging, then allow Phone EQ in Shizuku. In the Companion fitter, pick Main EQ, Channel Match, or Paired EQ and choose **Open in Phone EQ**. [Setup and Quve credits](android-playback/)
+
+Companion uses the same five fitting methods as Personal EQ Tuning on the website, including All-Band Fit. It checks for a compatible fitter update when you open Auto EQ online and can generate EQ offline with its bundled fitter. Your measurement and target stay on the device during fitting.
 
 Android lists the three apps as **YYEQ App Manager**, **YYEQ 5K**, and **YYEQ PhoneEQ**. Phone EQ can back up saved presets from **Library**. Companion can back up saved presets and measurements from **Devices → Local library**. Save a backup to a shared folder before uninstalling if you want to restore it later.
 

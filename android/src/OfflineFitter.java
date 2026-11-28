@@ -15,7 +15,7 @@ final class OfflineFitter {
     private static final int LIMIT=1024*1024;
     OfflineFitter(Context context,String origin) throws IOException {
         this.origin=origin;
-        file=new AtomicFile(new File(context.getNoBackupFilesDir(),"fitter-v1"));
+        file=new AtomicFile(new File(context.getNoBackupFilesDir(),"fitter-v1-all-band"));
         try(InputStream input=context.getAssets().open("fitter-version.txt")){bundled=read(input,128).trim();}
     }
     static String read(InputStream input,int limit)throws IOException{
@@ -44,7 +44,8 @@ final class OfflineFitter {
     String update(String current)throws Exception{
         JSONObject manifest=new JSONObject(download("json",1024));String expected=manifest.getString("sha256");
         int size=manifest.getInt("bytes");
-        if(manifest.getInt("format")!=1 || !expected.matches("[0-9a-f]{64}")||size<=0||size>LIMIT)return null;
+        if(manifest.getInt("format")!=1 || !manifest.optBoolean("allBand",false) ||
+                !expected.matches("[0-9a-f]{64}") || size<=0 || size>LIMIT)return null;
         if(expected.equals(bundled)){clear();return "";}
         if(!current.isEmpty() && hash(current).equals(expected))return null;
         String program=download("mjs",size);

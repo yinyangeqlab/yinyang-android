@@ -54,7 +54,7 @@ function phoneFitPreset(saved,option,text){
    ['mediumlarge','ML'],['largemedium','ML'],['large','L'],['extralarge','XL']]);
  const size=sizes.get(sizeKey)
    || (/^(?:xxs|xs|ss|s|ms|m|ml|l|ll|xl|xxl)$/i.test(details.size)?details.size.toUpperCase():details.size);
- const fitter=({standard:'Std',precise:'Prec',peqdb:'PEQdB-U','peqdb-smoothed':'PEQdB-S'})[option.method];
+ const fitter=({standard:'Std',precise:'Prec',peqdb:'PEQdB-U','peqdb-smoothed':'PEQdB-S',joint:'All-Band'})[option.method];
  const fitName=[shortened(details.device,28),
    [shortened(details.tips,15),shortened(size,7)].filter(Boolean).join(' '),
    shortened(details.target,24),
@@ -517,7 +517,7 @@ function startFit(m,t,match,run,button){
      if(saved===false)status('The comparison is open. This phone could not save it locally.');
      window.scrollTo(0,0);
    };
-   job.postMessage({raw:m.points,target:t.points,match,plus:model||standalone,type:m.type});
+   job.postMessage({raw:m.points,target:t.points,match,plus:model||standalone,type:m.type,allBand:true});
  }catch(err){failed('Could not start the fitter. Try again.');}
 }
 function renderComparison(saved,parent){

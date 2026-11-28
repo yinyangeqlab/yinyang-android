@@ -9,14 +9,15 @@ import {fileURLToPath,pathToFileURL} from 'node:url';
 import path from 'node:path';
 const root=fileURLToPath(new URL('../../',import.meta.url));
 const release=path.join(root,JSON.parse(readFileSync(path.join(root,'LIVE_RELEASE.json'))).applicationSnapshot);
-const assets=path.join(release,'dist/client/vendor/peqdb-autoeq'),site=path.join(release,'site');
+const assets=path.join(release,'dist/client/vendor/peqdb-autoeq');
+const site=process.env.YINYANG_FITTER_SITE||path.join(release,'site');
 const getWorker=apk=>JSON.parse(execFileSync('unzip',['-p',apk,'assets/library.html'],{encoding:'utf8',maxBuffer:16*1024*1024}).match(/const bundledWorker=(.+?);\n/)[1]);
 const apks=process.argv.length>2?process.argv.slice(2):[path.join(root,'android/build/YinYangEQ Q5K Companion App.apk')];
 const app=getWorker(apks[0]);
 for(const apk of apks.slice(1))assert.equal(app,getWorker(apk));
-const candidate=process.env.YINYANG_FITTER_SITE||site;
-const {compileCompanionFitter}=await import(new URL('../scripts/build/companion-fitter.mjs',pathToFileURL(candidate+'/')).href);
+const {compileCompanionFitter}=await import(new URL('../scripts/build/companion-fitter.mjs',pathToFileURL(site+'/')).href);
 const packaged=compileCompanionFitter(assets);
+assert.equal(packaged.manifest.allBand,true);
 assert.equal(packaged.manifest.sha256,createHash('sha256').update(app).digest('hex'));
 assert.equal(new TextDecoder().decode(packaged.worker),app);
 console.log('PASS website update payload matches the APK’s offline program');
@@ -37,16 +38,32 @@ const raw=Array.from({length:96},(_,i)=>[20*1000**(i/95),5*Math.sin(i/12)+1.3*Ma
 const target=[[20,4],[80,2],[1000,0],[4500,3],[20000,-3]];
 const a=worker(app),w=worker(web);
 try {
+ const {result:legacy}=await a.run({raw,target,type:'ie',plus:false,match:null});
+ assert.equal(new Set(legacy.options.map(option=>option.method+':'+option.bands)).size,16);
+ assert.ok(legacy.options.every(option=>option.method!=='joint'));
+ console.log('PASS existing clients still receive the 16 original fits');
  for(const [type,plus] of [['oe',true],['ie',false]]){
-  const {result}=await a.run({raw,target,type,plus,match:null});
-  assert.ok(result.options.length>=16);assert.ok(result.ranked.length);
-  for(const option of result.options.slice(0,16)){
+  const match=plus?{leftPoints:raw,rightPoints:raw.map(([hz,db],i)=>[hz,db+Math.sin(i/8)]),leftLevelDb:1,rightLevelDb:0}:null;
+  const start=performance.now();
+  const {result}=await a.run({raw,target,type,plus,match,allBand:true});
+  const elapsed=Math.round(performance.now()-start);
+  const baseFits=result.options.slice(0,20);
+  assert.equal(new Set(baseFits.map(option=>option.method+':'+option.bands)).size,20);
+  assert.deepEqual(baseFits.filter(option=>option.method==='joint').map(option=>option.bands).sort((a,b)=>a-b),[10,15,20,30]);
+  assert.ok(result.ranked.length);
+  if(match)assert.ok(result.matches.some(candidate=>candidate.label.startsWith('All-Band Fit')));
+  for(const option of baseFits){
    const {results:[ref]}=await w.run({id:1,request:{raw,targets:[target],kind:'export',method:option.method,bands:option.bands,headphoneType:option.method==='peqdb-smoothed'?type:undefined,sampleRate:48000}});
    assert.deepEqual(option.filters,ref.filters);assert.equal(option.preamp,ref.preamp);assert.equal(option.rms,exportFitRms(raw,target,ref.filters));
-   assert.equal(ref.engine,option.method.startsWith('peqdb')?'peqdb':'legacy');
+   assert.equal(ref.engine,option.method==='joint'?'joint':option.method.startsWith('peqdb')?'peqdb':'legacy');
+  }
+  for(const fit of result.ranked){
+   const main=result.user[fit.ui].filters.length;
+   const channel=Math.max(...result.matches[fit.mi].channels.map(c=>c.filters.length));
+   assert.ok(plus?main<=30 && Math.max(0,main-10)+channel<=20:main<=10 && channel<=10);
   }
   const [best,close]=result.choices.map(i=>result.ranked[i]);assert(best && close);
   assert.equal(best.rms,Math.min(...result.ranked.map(f=>f.rms)));assert.equal(close.peak,Math.min(...result.ranked.filter(f=>f.rms<=best.rms+result.windowDb).map(f=>f.peak)));
-  console.log('PASS',type,plus?'5K Plus':'5K','16 website outputs, peak/fit recommendations, no network');
+  console.log('PASS',type,plus?'5K Plus':'5K','20 identical website results, device limits, local fitting ('+elapsed+' ms)');
  }
 }finally{await Promise.all([a.close(),w.close()]);}
