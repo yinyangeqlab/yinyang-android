@@ -64,6 +64,11 @@ def manifest(source, app_id, destination):
     original = root.attrib["package"]
     root.set("package", app_id)
     app = root.find("application")
+    if app_id == COMPANION:
+        ET.SubElement(app, "meta-data", {
+            ANDROID + "name": "com.yinyangeq.REPORT_ENDPOINT",
+            ANDROID + "value": "https://reports.yinyangeq.com",
+        })
     for component in app:
         name = component.get(ANDROID + "name", "")
         if name.startswith("."):

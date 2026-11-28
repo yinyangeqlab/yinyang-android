@@ -66,4 +66,25 @@ final class ProbeLog {
             return log.contains(report) ? log : log + report;
         }
     }
+
+    String reportEvents() {
+        java.util.ArrayDeque<String> recent = new java.util.ArrayDeque<>();
+        try {
+            for (String line : snapshot(null).split("\\n")) {
+                String event;
+                if (line.contains("read-back differs")) event = "readback mismatch";
+                else if (line.contains("restored and verified") || line.contains("Saved EQ restored")) event = "restore verified";
+                else if (line.contains("Action timing") && line.contains("Live EQ") && line.endsWith("complete")) event = "working EQ verified";
+                else if (line.contains("timed out")) event = "timeout";
+                else if (line.contains("disconnected") || line.contains("disconnection")) event = "disconnected";
+                else if (line.contains("Workbench operation incomplete")) event = "operation failed";
+                else if (line.contains("EQ") && (line.contains("import failed") || line.contains("export failed"))) event = "file error";
+                else continue;
+                if (event.equals(recent.peekLast())) continue;
+                if (recent.size() == 16) recent.removeFirst();
+                recent.addLast(event);
+            }
+        } catch (IOException ignored) { return "unavailable"; }
+        return recent.isEmpty() ? "none" : String.join(", ", recent);
+    }
 }

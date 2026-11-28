@@ -353,6 +353,15 @@ public final class PlusActivity extends AppearanceActivity {
             add(body,button("Run offline simulation",false,()->simulate(false)),8);
             add(body,button("Simulate a dropped connection",false,()->simulate(true)),8);
         } else {
+            if (ReportClient.available(this)) add(body,button("Report a bug",false,()-> {
+                org.json.JSONObject data = ReportClient.deviceDiagnostics();
+                ReportClient.field(data, "dac", "Qudelix 5K Plus");
+                if (connection.status != null) ReportClient.field(data, "firmware", connection.status.firmware);
+                ReportClient.field(data, "mode", mode.name());
+                ReportClient.field(data, "stage", currentBank == 0 ? "Main EQ" : "Channel Match");
+                ReportClient.field(data, "events", log.reportEvents());
+                ReportClient.show(this, "companion", data);
+            }),8);
             add(body,button("View debug log",false,()-> {
                 try { new AlertDialog.Builder(this).setTitle("Debug log").setMessage(log.snapshot(null)).setPositiveButton("Close",null).show(); }
                 catch(IOException e){showError(e.getMessage());}

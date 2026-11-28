@@ -1,0 +1,19 @@
+{
+  "name": "yinyang-eq-reports",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-05-15",
+  "workers_dev": false,
+  "preview_urls": false,
+  "limits": { "cpu_ms": 5000 },
+  "routes": [{ "pattern": "reports.yinyangeq.com", "custom_domain": true }],
+  "triggers": { "crons": ["*/15 * * * *"] },
+  "observability": { "enabled": false },
+  "durable_objects": {
+    "bindings": [{ "name": "REPORTS", "class_name": "ReportStore" }]
+  },
+  "migrations": [{ "tag": "reports-v1", "new_sqlite_classes": ["ReportStore"] }],
+  "ratelimits": [
+    { "name": "READ_LIMIT", "namespace_id": "80111", "simple": { "limit": 60, "period": 60 } },
+    { "name": "WRITE_LIMIT", "namespace_id": "80112", "simple": { "limit": 12, "period": 60 } }
+  ]
+}

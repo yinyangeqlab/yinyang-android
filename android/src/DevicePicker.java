@@ -174,6 +174,11 @@ public final class DevicePicker extends AppearanceActivity {
         label("Local library",18,true);
         action("Back up local library",()->pickLocalBackup(true));
         action("Restore local library",()->pickLocalBackup(false));
+        if (ReportClient.available(this)) action("Report a bug", () -> {
+            org.json.JSONObject data = ReportClient.deviceDiagnostics();
+            if (current != null) ReportClient.field(data, "dac", current.profile.model.label);
+            ReportClient.show(this, "companion", data);
+        });
         label("USB",18,true);
         int count=0;
         UsbManager manager=usb();

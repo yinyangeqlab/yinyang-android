@@ -49,6 +49,7 @@ import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.superglobalpeq.app.dsp.EqualizerApoParser
 import com.superglobalpeq.app.model.EqPreset
+import com.yinyangeq.qudelixprobe.ReportClient
 import rikka.shizuku.Shizuku
 import java.io.IOException
 import java.util.Locale
@@ -323,8 +324,8 @@ class PlaybackActivity : Activity() {
         val content = column().apply { setPaddingRelative(dp(16), dp(18), dp(16), dp(22)) }
         home.addView(content, FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_HORIZONTAL))
         limitWidth(home, content)
+        content.addView(buildSetup(), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(14) })
         content.addView(buildPresets(), -1, -2)
-        content.addView(buildSetup(), spaced(14))
         importNote = label("", 14, appearance.warning).apply {
             accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
@@ -426,18 +427,29 @@ class PlaybackActivity : Activity() {
             addView(filters, spaced(15))
             playbackModes = column().apply {
                 addView(label("Playback mode", 14, appearance.muted))
+                val configuration = resources.configuration
+                val stackCombinedMode = configuration.screenWidthDp < 360 || configuration.fontScale >= 1.3f
                 val modeRow = LinearLayout(this@PlaybackActivity).apply { isBaselineAligned = false }
+                addView(modeRow, spaced(6))
                 modeButtons = PresetPlaybackMode.entries.associateWith { mode ->
-                    navButton(mode.label) {
+                    val control = navButton(mode.label) {
                         pairedMode = mode
                         refresh()
-                    }.also { control ->
-                        modeRow.addView(control, LinearLayout.LayoutParams(0, -1, 1f).apply {
+                    }
+                    if (stackCombinedMode && mode == PresetPlaybackMode.BOTH) {
+                        addView(control, spaced(6))
+                    } else {
+                        val weight = when (mode) {
+                            PresetPlaybackMode.MAIN -> 1f
+                            PresetPlaybackMode.CHANNEL -> 1.15f
+                            PresetPlaybackMode.BOTH -> 1.65f
+                        }
+                        modeRow.addView(control, LinearLayout.LayoutParams(0, -1, weight).apply {
                             if (mode != PresetPlaybackMode.MAIN) marginStart = dp(6)
                         })
                     }
+                    control
                 }
-                addView(modeRow, spaced(6))
             }
             addView(playbackModes, spaced(16))
             toggleFilters = button("Show filters") {
@@ -737,14 +749,51 @@ class PlaybackActivity : Activity() {
             appendLine()
             append(PlaybackService.lastStartup(this@PlaybackActivity) ?: "No playback startup recorded yet.")
         }
-        bugDialog = AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle("Report a bug")
             .setMessage("Copy these details and share them with the person helping you.\n\n$report")
             .setNegativeButton("Close", null)
             .setPositiveButton("Copy details") { _, _ ->
                 copyToClipboard("Phone EQ diagnostics", report)
-            }.show().also { dialog -> dialog.setOnDismissListener { bugDialog = null } }
+            }
+        if (ReportClient.available(this)) {
+            dialog.setNeutralButton("Review report") { _, _ ->
+                val data = ReportClient.deviceDiagnostics()
+                val status = PlaybackService.status
+                ReportClient.field(data, "shizuku", shizukuStatus)
+                ReportClient.field(data, "shizukuVersion", shizukuVersion)
+                ReportClient.field(data, "notifications", PlaybackService.notificationsEnabled(this))
+                ReportClient.field(data, "availableOutputs", outputs.joinToString())
+                val route = PlaybackService.lastOutputType
+                ReportClient.field(data, "activeRoute", if (route < 0) "unknown" else outputName(route))
+                ReportClient.field(data, "playbackMode", (status.activeMode ?: selected?.let {
+                    PresetPlaybackMode.forPreset(it, pairedMode)
+                })?.name)
+                ReportClient.field(data, "playback", if (status.running) "running" else if (status.busy) "starting" else "off")
+                ReportClient.field(data, "startup", startupEvents(PlaybackService.lastStartup(this)))
+                ReportClient.show(this, "phone-eq", data)
+            }
+        }
+        bugDialog = dialog.show().also { it.setOnDismissListener { bugDialog = null } }
     }
+
+    private fun startupEvents(trace: String?): String =
+        trace?.lineSequence()?.mapNotNull { line ->
+            when {
+                "Audio policy registration returned" in line -> "policy rejected"
+                "Audio policy registered" in line -> "policy registered"
+                "capture" in line && "failed" in line -> "capture failed"
+                "capture" in line && "recording state" in line -> "capture checked"
+                "No capture route started" in line -> "no route"
+                "Playback output initialized" in line -> "output initialized"
+                "Playback processing started" in line -> "processing started"
+                "AudioRecord.read error" in line -> "capture read error"
+                "AudioTrack.write error" in line -> "output write error"
+                "Playback access changed" in line -> "access changed"
+                "Shizuku" in line -> "Shizuku unavailable"
+                else -> null
+            }
+        }?.take(20)?.joinToString(", ")?.ifEmpty { "none" } ?: "none"
 
     private fun copyToClipboard(label: String, text: String) {
         getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, text))
@@ -797,17 +846,18 @@ class PlaybackActivity : Activity() {
             Setup.STOPPED, Setup.UNSUPPORTED -> "Open Shizuku and start it using Wireless debugging. Return here when it is running."
             Setup.UNAUTHORIZED -> if (manualGrant)
                 "In Shizuku, open Authorized applications and allow YinYang Phone EQ."
-                else "Allow Phone EQ to process media and game audio while playback EQ is on."
+                else "Choose “Allow all the time” in the Shizuku prompt. EQ starts when you tap Start phone EQ."
             Setup.READY -> ""
         }
         installLinks.visible(next == Setup.MISSING)
         setupAction.visible(next != Setup.MISSING)
-        setupAction.text = if (next == Setup.UNAUTHORIZED && !manualGrant) "Allow Shizuku" else "Open Shizuku"
+        setupAction.text = if (next == Setup.UNAUTHORIZED && !manualGrant) "Grant Phone EQ access" else "Open Shizuku"
     }
 
     private fun refresh() {
         val state = PlaybackService.status
         val next = shizukuSetup()
+        val justAuthorized = setup != Setup.READY && next == Setup.READY
         if (setup != next) renderSetup(next)
         val ready = next == Setup.READY
         val reviewing = screen == Screen.REVIEW
@@ -820,6 +870,7 @@ class PlaybackActivity : Activity() {
         companionButton.visible(companionReturn)
         setupPanel.visible(!ready && !reviewing && !browsing)
         presetPanel.visible(!browsing && (reviewing || ready || preset != null))
+        if (justAuthorized && screen == Screen.HOME) home.post { home.scrollTo(0, 0) }
         openTxt.visible(!reviewing)
         if (backRegistered != (screen != Screen.HOME)) {
             backRegistered = screen != Screen.HOME

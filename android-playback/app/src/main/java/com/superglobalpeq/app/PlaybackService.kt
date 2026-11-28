@@ -37,6 +37,8 @@ class PlaybackService : Service() {
                                    val activePresetId: String? = null, val activeMode: PresetPlaybackMode? = null)
         @Volatile internal var status = Status("Phone EQ is off.")
             private set
+        @Volatile internal var lastOutputType = -1
+            private set
 
         fun lastStartup(context: Context): String? = context.getSharedPreferences(DIAGNOSTICS, Context.MODE_PRIVATE)
             .getString(LAST_STARTUP, null)
@@ -165,6 +167,7 @@ class PlaybackService : Service() {
             }
             val applied = result.getOrDefault(false)
             val diagnostics = runCatching { JSONObject(service.statusJson) }.getOrNull()
+            lastOutputType = diagnostics?.optInt("outputType", -1) ?: -1
             val problem = diagnostics?.optString("error").orEmpty()
             handler.post {
                 if (attempt != generation || stopping) return@post
@@ -202,6 +205,7 @@ class PlaybackService : Service() {
         handler.postDelayed({
             if (attempt != generation || stopping) return@postDelayed
             if (!notificationsEnabled(this) || !authorized()) {
+                rememberStartup(listOfNotNull(lastStartup(this), "Playback access changed.").joinToString("\n"))
                 finishPlayback("Playback access changed. Phone EQ is off.")
                 return@postDelayed
             }
@@ -210,6 +214,7 @@ class PlaybackService : Service() {
                 handler.post {
                     if (attempt != generation || stopping) return@post
                     if (diagnostics?.optBoolean("running") == true) {
+                        lastOutputType = diagnostics.optInt("outputType", lastOutputType)
                         poll(service, attempt)
                     } else {
                         val error = diagnostics?.optString("error").orEmpty()

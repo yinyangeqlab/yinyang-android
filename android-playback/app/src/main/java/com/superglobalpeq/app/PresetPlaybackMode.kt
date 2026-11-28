@@ -6,7 +6,7 @@ import com.superglobalpeq.app.model.EqPreset
 internal enum class PresetPlaybackMode(val label: String) {
     MAIN("Main EQ"),
     CHANNEL("Channel Match"),
-    BOTH("Both");
+    BOTH("Main EQ + Channel Match");
 
     fun config(preset: EqPreset): ActiveDspConfig {
         val playback = when (this) {

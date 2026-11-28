@@ -481,6 +481,7 @@ class AudioLoopbackUserService : IAudioLoopbackService.Stub() {
     override fun getStatusJson(): String {
         requireActiveClient()
         return JSONObject().put("running", loopRunning.get())
+            .put("outputType", runCatching { activeTrack?.routedDevice?.type ?: -1 }.getOrDefault(-1))
             .put("error", lastError ?: JSONObject.NULL).put("startupTrace", startupTrace).toString()
     }
 

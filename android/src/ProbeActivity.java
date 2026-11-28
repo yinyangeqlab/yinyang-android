@@ -128,6 +128,15 @@ public final class ProbeActivity extends AppearanceActivity {
         diagnosticSections[2] = diagnosticSection(content, "Offline simulations", null, simulate, simulateDrop);
         diagnosticSections[3] = diagnosticSection(content, "Logs",
                 "The log includes command timings, connection errors, device tests and EQ file failures.", exportLog);
+        if (ReportClient.available(this)) ((LinearLayout) diagnosticSections[3]).addView(
+                CompanionActions.secondary(this, "Report a bug", () -> {
+                    org.json.JSONObject data = ReportClient.deviceDiagnostics();
+                    ReportClient.field(data, "dac", "Qudelix 5K");
+                    ReportClient.field(data, "transport", "Bluetooth");
+                    ReportClient.field(data, "stage", bank == 0 ? "Main EQ" : "Channel Match");
+                    ReportClient.field(data, "events", log.reportEvents());
+                    ReportClient.show(this, "companion", data);
+                }));
         String initialStatus = recovery.exists()
                 ? "An EQ test is pending. Keep headphones unplugged and tap Check EQ restoration."
                 : "Ready. Unofficial Qudelix compatibility probe.";
