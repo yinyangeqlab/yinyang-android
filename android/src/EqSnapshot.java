@@ -89,6 +89,46 @@ final class EqSnapshot {
         return new ProtocolException("The " + group + " EQ preset segments did not form a complete block.");
     }
 
+    int enabledStages(){
+        return (configuration[4]&1) | ((configuration[13]&1)<<1);
+    }
+
+    static EqSnapshot setPower(GaiaProbe.Connection link,EqSnapshot start,int wanted) throws IOException {
+        int previous=start.enabledStages();
+        byte[] expected=start.configuration.clone();
+        for(int group=0;group<2;group++)
+            expected[4+9*group]=(byte)((expected[4+9*group]&~1)|((wanted>>group)&1));
+        try {
+            for(int group=0;group<2;group++)
+                if(((previous^wanted)&(1<<group))!=0)link.enableEq(group,(wanted&(1<<group))!=0);
+            EqSnapshot actual=link.read();
+            if(!Arrays.equals(expected,actual.configuration) || !sameBlocks(start,actual))
+                throw new IOException("The 5K did not confirm its EQ power settings.");
+            return actual;
+        } catch(IOException failure) {
+            try {
+                EqSnapshot actual=link.read();
+                byte[] withoutPower=actual.configuration.clone();
+                for(int group=0;group<2;group++)
+                    withoutPower[4+9*group]=(byte)((withoutPower[4+9*group]&~1)|((previous>>group)&1));
+                if(!Arrays.equals(withoutPower,start.configuration)||!sameBlocks(start,actual))
+                    throw new IOException("The active EQ changed.");
+                for(int group=0;group<2;group++)
+                    if(((actual.enabledStages()^previous)&(1<<group))!=0)link.enableEq(group,(previous&(1<<group))!=0);
+                EqSnapshot restored=link.read();
+                if(!Arrays.equals(start.configuration,restored.configuration)||!sameBlocks(start,restored))
+                    throw new IOException("The previous EQ power settings did not verify.");
+            } catch(IOException recovery) {
+                throw new IOException("EQ power could not be verified. Refresh to read the 5K.",recovery);
+            }
+            throw new IOException("The previous EQ power settings were restored. "+failure.getMessage(),failure);
+        }
+    }
+
+    private static boolean sameBlocks(EqSnapshot a,EqSnapshot b){
+        return Arrays.equals(a.usr,b.usr)&&Arrays.equals(a.spk,b.spk);
+    }
+
     String summary() {
         return "Read active USR and SPK EQ blocks. The configuration matched before and after capture.";
     }

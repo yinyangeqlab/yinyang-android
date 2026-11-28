@@ -8,6 +8,10 @@ Link one Qudelix 5K or 5K Plus. The companion checks the model before opening de
 
 **Main EQ · USR** controls the common response. **Channel Match · SPK** has independent left and right gains. In Both view, the same filter type, frequency and Q share a single row with an editable gain for each ear. Use Left CM or Right CM to change one side’s filter shape. Clear filters removes the bands on the open EQ page. In Channel Match it clears both ears. Reload restores that page’s starting EQ, including an unsaved draft.
 
+Use **Master** to bypass both EQ stages and restore the previous combination. **Main** and **Channel Match** show and control each stage’s live state. In layered mode on the 5K Plus, the Channel Match switch also bypasses Main bands above the first ten because they share the SPK bank.
+
+Use **Rename** beside the preset title to change the name proposed when saving to the Qudelix or the phone. Generated fits carry their names into the editor. Open **Load preset** and use the menu beside a saved device preset to edit, rename, move, reset to Flat or remove it. Set a default to get a **Load default** shortcut for that bank. Saved paired drafts on the phone have their own rename, reorder, default and delete actions.
+
 The original 5K offers ten independent match filters per ear. The Plus offers up to twenty per ear with up to ten Main EQ filters. With twenty Main filters there is room for ten independent filters per ear. All thirty can serve Main EQ with no channel correction. Twenty left and twenty right amount to twenty mirrored correction pairs.
 
 In **Auto EQ**, search the site headphone index, choose a saved measurement, or attach a file. Open the target catalog in global rank order. **Personal rank** loads tournament rankings from your approved Sync link. **Generate EQ** fits Main PEQ and includes Channel Match when left and right responses are available. Save filters or paired presets as TXT, or open the best two distinct fits in Blind A/B with a linked DAC. The Plus auditions both stages together. The original 5K compares Main PEQ with its current Channel Match fixed.

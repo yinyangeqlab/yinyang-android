@@ -62,6 +62,7 @@ public final class PlusActivity extends AppearanceActivity {
     private PlusPreset.Mode mode = PlusPreset.Mode.LAYERED;
     private SharedPreferences storage;
     private String name = "";
+    private int powerState=-1, powerStages=3;
     private int page, currentBank;
     private String awaitingExport;
     private CompanionEditor.Viewport scroll;
@@ -124,13 +125,14 @@ public final class PlusActivity extends AppearanceActivity {
                 if(applyDraftPrompt!=null)applyDraftPrompt.getButton(AlertDialog.BUTTON_POSITIVE).setEnabled(writable());
                 log.record(connection.status==null ? "Device discovery or disconnection" : "5K Plus connected · firmware "+connection.status.firmware);
                 if (connection.status == null) {
-                    inputPending=false;
+                    inputPending=false;powerState=-1;
                     catalogue=null;requestCatalogue=false;sessionEpoch++;blindBusy=false;channelSwapBusy=false;loadingLinkedEq=false; libraryBusy = false; levels = null; queuedRevision = 0; applying = false;
                     syncMessage = storage.contains("pendingRevision") ? "Phone draft · Waiting for your 5K Plus." : "Phone draft · Connect to apply to your 5K Plus.";
                 } else {
                     missingShown=false;
 
                     checkFirmwareNotice();
+                    readPower();
                     if(blind.active())page=BLIND_PAGE;else if(storage.contains("draft"))syncPending();else firstLinkedEq();
                 }
                 render(true);
@@ -542,12 +544,13 @@ public final class PlusActivity extends AppearanceActivity {
 
     private void renderPair(LinearLayout body) {
         boolean layered=mode==PlusPreset.Mode.LAYERED;
-        boolean ready=!libraryBusy && !applying && !blind.active() && !blindBusy && !swapPending() && !channelSwapBusy;
-        CompanionEditor.presetName(body,name.isEmpty()?"Paired EQ":name);
+        boolean ready=!libraryBusy && !blind.active() && !blindBusy && !swapPending() && !channelSwapBusy;
+        CompanionEditor.presetName(body,presetTitle(PlusLibrary.PAIR),ready,()->renameDraft(PlusLibrary.PAIR));
+        drawPower(body,ready);
         CompanionEditor.presetActions(body,presetsOpen,ready,()->{
             presetsOpen=!presetsOpen; render(true);
         },"Save pair to 5K Plus",layered && ready && writable(),()->saveDevicePreset(PlusLibrary.PAIR),
-                layered && ready,this::saveNamed);
+                layered && ready,()->saveNamed(PlusLibrary.PAIR));
         CompanionEditor.files(body,ready,ready,pairFiles::pick,this::exportPair);
         if (presetsOpen) renderPresets(body);
         if(!layered) add(body,text("30-band Main only is active. This graph shows the saved layered drafts.",14,MUTED,false),6);
@@ -557,6 +560,72 @@ public final class PlusActivity extends AppearanceActivity {
         CompanionEditor.pairStage(body,"Channel Match",stageNames[1].isEmpty()?"Channel Match draft":stageNames[1],()->editPairedStage(1));
     }
 
+    private String presetTitle(int group){
+        if(group==PlusLibrary.PAIR)return name.isEmpty()?"Paired EQ":name;
+        return stageNames[group].isEmpty() ? (name.isEmpty()?"Phone draft":name) : stageNames[group];
+    }
+
+    private void renameDraft(int group){
+        PresetShelf.askName(this,"Rename active EQ",presetTitle(group),"Done",48,title->{
+            renameDraft(group,title);
+            storage.edit().putString("draft",draftJson()).apply();
+            render(true);
+            return true;
+        });
+    }
+
+    private void renameDraft(int group,String title){
+        if(group==PlusLibrary.PAIR)name=title;
+        else stageNames[group]=title;
+    }
+
+    private void drawPower(LinearLayout body,boolean ready){
+        boolean sharedBanks=powerStages==3 && (powerState>=0 || mode==PlusPreset.Mode.LAYERED);
+        CompanionEditor.eqPower(body,powerState,powerStages,ready && writable() && !reversible.pending(),this::togglePower);
+        if(sharedBanks)add(body,text("Main switches the USR bank (the first 10 Main bands). Channel Match switches SPK, which also holds any additional Main bands.",13,MUTED,false),2);
+    }
+
+    private void readPower(){
+        if(!writable())return;
+        int epoch=sessionEpoch;
+        connection.enqueue((link,state)->{
+            int[] power=readPower(link);
+            runOnUiThread(()->{
+                if(!isDestroyed() && epoch==sessionEpoch && updatePower(power) && page==0)render(true);
+            });
+        });
+    }
+
+    private static int[] readPower(PlusUsbProtocol.Transport link){
+        try{
+            java.util.Map<Integer,byte[]> config=PlusUsbProtocol.read(link,PlusApply.POWER);
+            for(int id:PlusApply.POWER)PlusUsbProtocol.required(config,id,4);
+            return new int[]{PlusApply.enabledStages(config),PlusApply.availableStages(config)};
+        }catch(IOException error){return new int[]{-1,3};}
+    }
+
+    private boolean updatePower(int[] power){
+        boolean changed=powerState!=power[0] || powerStages!=power[1];
+        powerState=power[0];powerStages=power[1];
+        return changed;
+    }
+
+    private void togglePower(int stage){
+        if(powerState<0 || !writable() || reversible.pending())return;
+        PlusUsbProtocol.Status connected=connection.status;
+        int shown=powerState, available=powerStages;
+        String key="powerRestore:"+available;
+        int wanted=stage!=0?shown^stage:shown!=0?0:storage.getInt(key,available);
+        libraryTask("Setting EQ power…",(link,packet)->{
+            new PlusApply(link,connected).power(available,shown,wanted);
+            return ()->{
+                if(stage==0 && shown!=0)storage.edit().putInt(key,shown).apply();
+                if(stage!=0)storage.edit().remove(key).apply();
+                syncText(wanted==0?"EQ bypassed.":wanted==3?"Main and Match enabled.":wanted==1?"Main enabled.":"Channel Match enabled.");
+            };
+        });
+    }
+
     private void firstLinkedEq(){
         if(loadingLinkedEq || blind.active() || blindBusy || !writable() || storage.contains("draft"))return;
         loadingLinkedEq=true;int epoch=sessionEpoch;
@@ -564,7 +633,9 @@ public final class PlusActivity extends AppearanceActivity {
             try{
                 int g=state.mode==PlusPreset.Mode.SHARED?2:0;
                 int shared=PlusLibrary.base(g)+3,match=PlusLibrary.base(1)+3;
-                java.util.Map<Integer,byte[]> blocks=PlusUsbProtocol.read(link,shared,match);
+                java.util.Map<Integer,byte[]> blocks=PlusUsbProtocol.read(link,shared,match,PlusLibrary.base(g),PlusLibrary.base(1));
+                String mainTitle=PlusLibrary.activeName(link,g,PlusUsbProtocol.required(blocks,PlusLibrary.base(g),4));
+                String matchTitle=PlusLibrary.activeName(link,1,PlusUsbProtocol.required(blocks,PlusLibrary.base(1),4));
                 PlusPreset.Channel main=PlusLibrary.decode(g,PlusUsbProtocol.required(blocks,shared,PlusLibrary.size(g)))[0];
                 PlusPreset.Channel[] ears=PlusLibrary.decode(1,PlusUsbProtocol.required(blocks,match,PlusLibrary.size(1)));
                 runOnUiThread(()->{
@@ -572,6 +643,7 @@ public final class PlusActivity extends AppearanceActivity {
                     loadingLinkedEq=false;
                     if(storage.contains("draft"))return;
                     mode=state.mode;draft=new PlusPreset.Channel[]{main,ears[0],ears[1]};
+                    stageNames[g]=mainTitle;stageNames[1]=matchTitle;
                     rememberPreset();ensureReloadPoints();storage.edit().putString("draft",draftJson()).apply();
                     syncText("Active EQ read from linked 5K Plus.");render(true);
                 });
@@ -602,8 +674,9 @@ public final class PlusActivity extends AppearanceActivity {
         int saveGroup=layered?bank:2;
         stageTabs();
         if (pairedPage) { renderPair(body); return; }
-        String preset = stageNames[saveGroup].isEmpty() ? (name.isEmpty() ? "Phone draft" : name) : stageNames[saveGroup];
-        CompanionEditor.presetName(body,preset);
+        boolean ready=!libraryBusy && !blind.active() && !blindBusy && !swapPending() && !channelSwapBusy;
+        CompanionEditor.presetName(body,presetTitle(saveGroup),ready,()->renameDraft(saveGroup));
+        drawPower(body,ready);
         syncLabel=new FilterTable.SyncStatus(this,"5K Plus");
         syncText(syncMessage);
         add(body,syncLabel,0);
@@ -617,7 +690,7 @@ public final class PlusActivity extends AppearanceActivity {
             body.addView(modeButton,-1,-2);
         }
         CompanionEditor.presetActions(body,presetsOpen,true,()->{presetsOpen=!presetsOpen;render(true);},
-                "Save to 5K Plus",writable(),()->nameDevicePreset(saveGroup),true,this::saveNamed);
+                "Save to 5K Plus",writable(),()->nameDevicePreset(saveGroup),true,()->saveNamed(saveGroup));
         eqFiles(body,bank);
         if(presetsOpen)renderPresets(body);
         responsePlot=CompanionEditor.graph(body,bank==0?ResponseTraces.Stage.MAIN:ResponseTraces.Stage.MATCH,graphInputs,
@@ -728,8 +801,14 @@ public final class PlusActivity extends AppearanceActivity {
                 together.setOnCheckedChangeListener((v,on)->{loadTogether=on;pairFirst=-1;render(true);});device.addView(together);
             }
             if(loadTogether && pairFirst!=-1)add(device,text("Choose a channel match for "+catalogue.title(0,pairFirst),14,INK,true),2);
+            int preferred=storage.getInt("defaultSlot:"+g,-1);
+            if(preferred>=0 && preferred<20 && catalogue.names[g][preferred]!=null)
+                add(device,button("Load default · "+catalogue.title(g,preferred),false,()->openListed(g,preferred)),4);
             int count=0;for(int i=0;i<20;i++)if(catalogue.names[g][i]!=null){int slot=i;count++;
-                add(device,button(Peq.fmt("%02d   %s",i+1,catalogue.names[g][i]),false,()->openListed(g,slot)),1);}
+                String title=Peq.fmt("%02d   %s",i+1,catalogue.names[g][i]);
+                if(i==preferred)title+=" · Default";
+                CompanionEditor.presetRow(device,title,!libraryBusy && !applying,()->openListed(g,slot),()->manageDeviceSlot(g,slot));
+            }
             if(count==0)add(device,text("No saved custom presets in this bank.",14,MUTED,false),4);
             Switch factoryToggle=new Switch(this);factoryToggle.setText("Factory presets");factoryToggle.setChecked(showFactory);
             device.addView(factoryToggle);
@@ -741,17 +820,108 @@ public final class PlusActivity extends AppearanceActivity {
         }else add(device,text(writable()?"Read the device to list stored presets.":"Connect your 5K Plus to read stored presets.",14,MUTED,false),5);
         if(writable())add(device,button("Refresh presets",false,this::loadCatalogue),4);
         add(body,text("Phone presets",16,INK,true),8);
-        java.util.ArrayList<String> names=new java.util.ArrayList<>();
-        for(String key:storage.getAll().keySet())if(key.startsWith("preset:"))names.add(key.substring(7));
-        Collections.sort(names,String.CASE_INSENSITIVE_ORDER);
+        PresetShelf shelf=new PresetShelf(storage,"preset:");
+        java.util.List<String> names=shelf.names();
         if(names.isEmpty())add(body,text("No presets saved on this phone.",14,MUTED,false),4);
-        for(String saved:names){
-            LinearLayout line=row();body.addView(line);
-            line.addView(button(saved,false,()->{if(loadDraft(storage.getString("preset:"+saved,""))){rememberPreset();loadTogether=false;pairFirst=-1;presetsOpen=false;saveDraft();render(false);}}),new LinearLayout.LayoutParams(0,-2,1));
-            line.addView(button("Delete",false,()->new AlertDialog.Builder(this).setMessage("Delete "+saved+"?")
-                .setNegativeButton("Cancel",null).setPositiveButton("Delete",(d,w)->{storage.edit().remove("preset:"+saved).apply();render(true);}).show()));
+        String preferred=shelf.preferred();
+        if(names.contains(preferred))
+            add(body,button("Load default · "+preferred,false,()->openPhonePreset(preferred)),4);
+        for(String saved:names)CompanionEditor.presetRow(body,saved+(saved.equals(preferred)?" · Default":""),
+            !libraryBusy && !applying,()->openPhonePreset(saved),()->shelf.manage(this,saved,()->render(true),title->{
+                if(!saved.equals(name))return;
+                name=title;
+                storage.edit().putString("draft",draftJson()).apply();
+            }));
+    }
+
+    private void openPhonePreset(String saved){
+        if(libraryBusy || applying || blind.active() || blindBusy || swapPending())return;
+        String serialized=storage.getString("preset:"+saved,"");
+        if(loadDraft(serialized)){
+            name=saved;
+            try {
+                int stage=new JSONObject(serialized).optInt("phoneTitleStage",PlusLibrary.PAIR);
+                if(stage>=0 && stage<=PlusLibrary.PAIR)renameDraft(stage,saved);
+            }catch(JSONException ignored){}
+            rememberPreset();loadTogether=false;pairFirst=-1;presetsOpen=false;saveDraft();render(false);
         }
     }
+
+    private void manageDeviceSlot(int group,int slot){
+        if(catalogue==null || !writable() || reversible.pending())return;
+        String title=catalogue.title(group,slot);
+        int preferred=storage.getInt("defaultSlot:"+group,-1);
+        String[] choices={"Edit filters","Rename","Move to slot…",slot==preferred?"Clear default":"Set as default","Reset to Flat","Remove preset"};
+        new AlertDialog.Builder(this).setTitle(title).setItems(choices,(d,i)->{
+            switch(i){
+                case 0:
+                    loadTogether=false;pairFirst=-1;
+                    openListed(group,slot);break;
+                case 1:PresetShelf.askName(this,"Rename device preset",title,"Save name",32,value->{
+                    if(!title.equals(value))libraryTask("Renaming preset…",(link,packet)->{
+                        PlusLibrary.rename(link,packet,group,slot,title,value);
+                        PlusLibrary updated=PlusLibrary.read(link);
+                        int active=PlusUsbProtocol.required(PlusUsbProtocol.read(link,PlusLibrary.base(group)),PlusLibrary.base(group),4)[3]&255;
+                        return ()->{
+                            catalogue=updated;
+                            if(active==22+slot && title.equals(stageNames[group])){
+                                stageNames[group]=value;
+                                storage.edit().putString("draft",draftJson()).apply();
+                            }
+                            syncText("Preset name saved.");
+                        };
+                    });
+                    return true;
+                });break;
+                case 2:chooseSlotDestination(group,slot,title);break;
+                case 3:storage.edit().putInt("defaultSlot:"+group,slot==preferred?-1:slot).apply();render(true);break;
+                case 4:confirmSlotChange(group,slot,-1,title,false);break;
+                case 5:confirmSlotChange(group,slot,-1,title,true);break;
+                default:break;
+            }
+        }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void chooseSlotDestination(int group,int source,String title){
+        java.util.ArrayList<Integer> slots=new java.util.ArrayList<>();
+        java.util.ArrayList<String> labels=new java.util.ArrayList<>();
+        for(int i=0;i<20;i++)if(catalogue.names[group][i]==null){
+            slots.add(i);labels.add("Slot "+(i+1));
+        }
+        if(slots.isEmpty()){toast("No free slot in this bank.");return;}
+        new AlertDialog.Builder(this).setTitle("Move "+title).setItems(labels.toArray(new String[0]),
+                (d,i)->confirmSlotChange(group,source,slots.get(i),title,true)).setNegativeButton("Cancel",null).show();
+    }
+
+    private void confirmSlotChange(int group,int slot,int destination,String title,boolean remove){
+        String action=destination>=0?"Move":remove?"Remove":"Reset to Flat";
+        String detail=destination>=0?"The filters and name will move to slot "+(destination+1)+"."
+                :remove?"This clears the saved slot.":"This replaces the saved filters with Flat.";
+        new AlertDialog.Builder(this).setTitle(action+" · "+title)
+                .setMessage(detail+" Pause your audio first. The 5K Plus selects presets temporarily to verify the change.")
+                .setNegativeButton("Cancel",null).setPositiveButton(action,(d,i)->libraryTask(action+"…",(link,packet)->{
+                    int tag=PlusLibrary.base(group);
+                    int previous=PlusUsbProtocol.required(PlusUsbProtocol.read(link,tag),tag,4)[3]&255;
+                    PlusLibrary.organize(link,packet,group,slot,destination,title,remove);
+                    PlusLibrary updated=PlusLibrary.read(link);
+                    boolean updatedWorking=previous==22+slot && destination<0;
+                    PlusPreset.Channel[][] result=updatedWorking?PlusLibrary.current(link,group):null;
+                    return ()->{
+                        catalogue=updated;
+                        if(remove && storage.getInt("defaultSlot:"+group,-1)==slot)
+                            storage.edit().putInt("defaultSlot:"+group,destination).apply();
+                        if(updatedWorking && title.equals(stageNames[group]) && (group==2)==(mode==PlusPreset.Mode.SHARED)){
+                            if(group==1){draft[1]=result[1][0];draft[2]=result[1][1];}
+                            else draft[0]=result[group][0];
+                            stageNames[group]=remove?"Flat":title;
+                            rememberStages(group);
+                            storage.edit().putString("draft",draftJson()).apply();
+                        }
+                        syncText(destination>=0?"Preset moved to slot "+(destination+1)+".":remove?"Slot cleared.":"Slot reset to Flat.");
+                    };
+                })).show();
+    }
+
     private void loadCatalogue(){
         if(libraryBusy || applying){requestCatalogue=false;return;}requestCatalogue=true;
         libraryTask((link,packet)->{PlusLibrary c=PlusLibrary.read(link);return ()->{catalogue=c;if(page==0 && presetsOpen)render(true);};});
@@ -850,15 +1020,18 @@ public final class PlusActivity extends AppearanceActivity {
 
     private interface HardwareTask { Runnable run(PlusUsbProtocol.Transport link,int packet) throws IOException; }
 
-    private void libraryTask(HardwareTask task) {
+    private void libraryTask(HardwareTask task){libraryTask("Reading device presets…",task);}
+
+    private void libraryTask(String message,HardwareTask task) {
         if(swapPending() || channelSwapBusy){toast("Finish the channel swap in Audio first.");return;}
         if(blind.active() || blindBusy){toast("End and restore the comparison first.");return;}
         if (!writable()) { toast(connection.status == null ? "Connect a 5K Plus to browse its presets." : "Device presets require firmware 1.0.3."); return; }
         if (libraryBusy || applying) { toast("Wait for the current device operation to finish."); return; }
         int epoch=sessionEpoch;
         libraryBusy=true;
-        syncText("Reading device presets…");
-        connection.enqueue((link,state) -> {
+        syncText(message);
+        render(true);
+        if(!connection.enqueue((link,state) -> {
             Runnable result;
             try {
                 if(blind.active())throw new IOException("End and restore the comparison first.");
@@ -866,11 +1039,20 @@ public final class PlusActivity extends AppearanceActivity {
             }
             catch(IOException | IllegalArgumentException e) { result=() -> showError(e.getMessage()); }
             final Runnable done=result;
+            int[] power=readPower(link);
             runOnUiThread(() -> {
                 if (isDestroyed() || epoch!=sessionEpoch || connection.status==null) return;
-                libraryBusy=false; done.run();
+                libraryBusy=false;
+                boolean changed=updatePower(power);
+                done.run();
+                if(changed || page==0)render(true);
+                syncPending();
             });
-        });
+        })){
+            libraryBusy=false;
+            syncText("Connect the 5K Plus to continue.");
+            render(true);
+        }
     }
 
     private void selectSlot(PlusLibrary library,int choice,int group,int[] selected,int slot) {
@@ -885,8 +1067,9 @@ public final class PlusActivity extends AppearanceActivity {
                     else { draft[0]=banks[0][0]; draft[1]=banks[1][0]; draft[2]=banks[1][1]; }
                     if (!mapping.isEmpty()) loadDraft(mapping);
                     rememberStages(PlusLibrary.groups(choice));
-                    for(int g=0;g<3;g++) stageNames[g]=library.title(g,selected[g]);
-                    pairFirst=-1;loadTogether=false;presetsOpen=false;name=""; currentBank=choice==1 ? 1 : 0; page=0;
+                    for(int g:PlusLibrary.groups(choice)) stageNames[g]=library.title(g,selected[g]);
+                    if(mapping.isEmpty())name=choice==PlusLibrary.PAIR?stageNames[0]:"";
+                    pairFirst=-1;loadTogether=false;presetsOpen=false; currentBank=choice==1 ? 1 : 0; page=0;
                     storage.edit().putString("draft",draftJson()).remove("pendingRevision").apply();
                     syncText("Loaded from the 5K Plus."); render(false);
                 };
@@ -899,7 +1082,34 @@ public final class PlusActivity extends AppearanceActivity {
             .setItems(new String[]{PlusLibrary.GROUPS[stage],"Main EQ and Channel Match together"},(d,i)->saveDevicePreset(i==1?PlusLibrary.PAIR:stage))
             .setNegativeButton("Cancel",null).show();
     }
-    private void saveDevicePreset(int group) {
+    private void saveDevicePreset(int group){
+        if(group==PlusLibrary.PAIR){saveDevicePreset(group,-1,null);return;}
+        if(!writable()){toast("Connect a 5K Plus to save a device preset.");return;}
+        libraryTask((link,packet)->{
+            PlusLibrary listed=PlusLibrary.read(link);
+            int tag=PlusLibrary.base(group);
+            int active=(PlusUsbProtocol.required(PlusUsbProtocol.read(link,tag),tag,4)[3]&255)-22;
+            return ()->chooseSaveSlot(group,listed,active);
+        });
+    }
+
+    private void chooseSaveSlot(int group,PlusLibrary listed,int active){
+        java.util.ArrayList<Integer> slots=new java.util.ArrayList<>();
+        java.util.ArrayList<String> labels=new java.util.ArrayList<>();
+        if(active>=0 && active<20 && listed.names[group][active]!=null){
+            slots.add(active);labels.add("Replace slot "+(active+1)+" · "+listed.names[group][active]);
+        }
+        slots.add(-1);labels.add("Save in a free slot");
+        for(int i=0;i<20;i++)if(i!=active && listed.names[group][i]!=null){
+            slots.add(i);labels.add("Replace slot "+(i+1)+" · "+listed.names[group][i]);
+        }
+        new AlertDialog.Builder(this).setTitle("Save to 5K Plus").setItems(labels.toArray(new String[0]),(d,i)->{
+            int slot=slots.get(i);
+            saveDevicePreset(group,slot,slot<0?null:listed.names[group][slot]);
+        }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void saveDevicePreset(int group,int target,String previousName) {
         if(reversible.pending()){toast("Finish the EQ restoration check in Debug first.");return;}
         if (!writable()) { toast("Connect a 5K Plus to save a device preset."); return; }
         if (group==0 && draft[0].bands.size()>10) {
@@ -913,29 +1123,32 @@ public final class PlusActivity extends AppearanceActivity {
             if(group==2) banks[2]=new PlusPreset.Channel[]{routed.user};
             else { banks[0]=new PlusPreset.Channel[]{routed.user}; banks[1]=routed.match; }
         } catch(IllegalArgumentException e) { showError(e.getMessage()); return; }
-        String logicalDraft = draftJson();
         EditText field=new EditText(this); field.setSingleLine(true);
+        field.setText(presetTitle(group));field.setSelectAllOnFocus(true);
         LinearLayout fields=form(); labelled(fields,"Preset name",field);
         String what=group==PlusLibrary.PAIR ? "USR + SPK pair" : PlusLibrary.GROUPS[group];
         AlertDialog d=new AlertDialog.Builder(this).setTitle("Save "+what)
-                .setMessage("This applies the selected bank or banks and saves them in an empty device slot.")
+                .setMessage(target<0?"This saves the selected EQ in a free device slot.":
+                        "This replaces "+previousName+" in slot "+(target+1)+".")
                 .setView(fields).setPositiveButton("Save",null).setNegativeButton("Cancel",null).create();
         d.setOnShowListener(ignored -> d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String title=field.getText().toString().trim();
             if(title.isEmpty() || title.getBytes(StandardCharsets.UTF_8).length>32) { field.setError("Use 1–32 UTF-8 bytes."); return; }
             d.dismiss(); libraryTask((link,packet)-> {
-                int slot=PlusLibrary.create(link,packet,group,title,banks);
+                int slot=PlusLibrary.save(link,packet,group,title,banks,target,previousName);
                 PlusPreset.Channel[][] physical=PlusLibrary.current(link,group);
                 return () -> { catalogue=null;requestCatalogue=false;pairFirst=-1;loadTogether=false;
-                    if (group==PlusLibrary.PAIR)
-                        storage.edit().putString(PlusLibrary.pairKey(banks),logicalDraft).apply();
                     switchMode(group==2 ? PlusPreset.Mode.SHARED : PlusPreset.Mode.LAYERED);
                     if(group==2) draft[0]=physical[2][0];
                     else if(group!=PlusLibrary.PAIR) { draft[0]=physical[0][0]; draft[1]=physical[1][0]; draft[2]=physical[1][1]; }
                     currentBank=group==1 ? 1 : 0;
                     rememberStages(PlusLibrary.groups(group));
                     for (int g:PlusLibrary.groups(group)) stageNames[g]=title;
-                    storage.edit().putString("draft",draftJson()).apply();
+                    if(group==PlusLibrary.PAIR)name=title;
+                    String serialized=draftJson();
+                    SharedPreferences.Editor save=storage.edit().putString("draft",serialized);
+                    if(group==PlusLibrary.PAIR)save.putString(PlusLibrary.pairKey(banks),serialized);
+                    save.apply();
                     toast("Verified "+what+" in slot "+(slot+1)+"."); render(false);
                 };
             });
@@ -1133,10 +1346,10 @@ public final class PlusActivity extends AppearanceActivity {
         }else syncPending();
     }
 
-    private void saveNamed() {
+    private void saveNamed(int group) {
         EditText value = new EditText(this);
         value.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-        value.setText(name);
+        value.setText(presetTitle(group));
         value.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(48)});
         LinearLayout fields = form();
         labelled(fields, "Preset name", value);
@@ -1147,16 +1360,19 @@ public final class PlusActivity extends AppearanceActivity {
             if (entered.isEmpty()) { value.setError("Enter a preset name."); return; }
             if (storage.contains("preset:" + entered)) {
                 new AlertDialog.Builder(this).setTitle("Replace " + entered + "?").setNegativeButton("Cancel", null)
-                    .setPositiveButton("Replace", (dialog, which) -> saveNamed(entered, prompt)).show();
-            } else saveNamed(entered, prompt);
+                    .setPositiveButton("Replace", (dialog, which) -> saveNamed(group,entered, prompt)).show();
+            } else saveNamed(group,entered, prompt);
         }));
         prompt.show();
     }
 
-    private void saveNamed(String entered, AlertDialog prompt) {
-        name = entered;rememberPreset();
+    private void saveNamed(int group,String entered, AlertDialog prompt) {
+        name=entered;renameDraft(group,entered);rememberPreset();
         String serialized = draftJson();
-        storage.edit().putString("preset:" + name, serialized).putString("draft", serialized).apply();
+        try{
+            String entry=new JSONObject(serialized).put("phoneTitleStage",group).toString();
+            storage.edit().putString("preset:" + name,entry).putString("draft",serialized).apply();
+        }catch(JSONException error){throw new IllegalStateException(error);}
         prompt.dismiss();
         toast("Preset saved on this phone.");
         render(true);
@@ -1174,7 +1390,7 @@ public final class PlusActivity extends AppearanceActivity {
             int slots = matching ? 20 : mode == PlusPreset.Mode.LAYERED ? 10 : 30;
             awaitingExport = PlusPreset.file(channels, slots);
             String bank = matching ? "spk" : mode == PlusPreset.Mode.LAYERED ? "usr" : "b30";
-            String filename = (name.isEmpty() ? "YinYang-EQ" : name).replaceAll("[^A-Za-z0-9_-]+", "-");
+            String filename = presetTitle(matching?1:mode==PlusPreset.Mode.SHARED?2:0).replaceAll("[^A-Za-z0-9_-]+", "-");
             Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain")
                 .putExtra(Intent.EXTRA_TITLE, "x5k.plus." + bank + "." + filename + ".txt");
             startActivityForResult(save, EXPORT);
@@ -1226,7 +1442,11 @@ public final class PlusActivity extends AppearanceActivity {
                 switchMode(layout);draft=next;
                 if(!tuning.isEmpty())rememberStages(mode==PlusPreset.Mode.SHARED?2:0);
                 if(match!=null && !match.isEmpty())rememberStages(1);
-                name=data.getStringExtra("tuningName");currentBank=tuning.isEmpty()?1:0;page=0;pairedPage=false;
+                String title=data.getStringExtra("tuningName");
+                name=title==null || title.trim().isEmpty()?"Library EQ":title;
+                if(!tuning.isEmpty())stageNames[mode==PlusPreset.Mode.SHARED?2:0]=name;
+                if(match!=null && !match.isEmpty())stageNames[1]=name;
+                currentBank=tuning.isEmpty()?1:0;page=0;pairedPage=false;
                 graphInputs.useFit(data.getStringExtra("graphInputs"));
                 storage.edit().putString("draft",draftJson()).remove("pendingRevision").apply();
                 String id=data.getStringExtra("tuningId");
@@ -1299,6 +1519,7 @@ public final class PlusActivity extends AppearanceActivity {
     }
 
     private void syncPending() {
+        if(libraryBusy)return;
         if(swapPending() || channelSwapBusy){syncText("Finish the channel swap in Audio first.");return;}
         if(blind.active() || blindBusy){syncText("A blind comparison is active.");return;}
         long revision = storage.getLong("pendingRevision", 0);
@@ -1321,9 +1542,11 @@ public final class PlusActivity extends AppearanceActivity {
             }
             try {
                 new PlusApply(link, state).apply(layout, plan);
+                int[] power=readPower(link);
                 runOnUiThread(() -> {
                     if (!isDestroyed() && queuedRevision == revision) {
                         applying=false;
+                        if(updatePower(power) && page==0)render(true);
                         if(storage.getLong("editRevision",0)==revision && connection.status!=null)syncText("EQ verified on the 5K Plus.");
                     }
                 });

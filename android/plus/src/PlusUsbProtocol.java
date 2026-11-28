@@ -115,7 +115,16 @@ final class PlusUsbProtocol {
     }
 
     static void saveSlot(Transport io,int group,int slot) throws IOException {
-        send(io,0x9006,new byte[]{(byte)128,0x30,1,(byte)group,(byte)slot,0,0});
+        presetAction(io,0x30,group,slot);
+    }
+
+    static void deleteSlot(Transport io,int group,int slot) throws IOException {
+        presetAction(io,0x31,group,slot);
+    }
+
+    private static void presetAction(Transport io,int action,int group,int slot) throws IOException {
+        if(group<0 || group>2 || slot<0 || slot>=20)throw new ProtocolException("Invalid preset slot.");
+        send(io,0x9006,new byte[]{(byte)128,(byte)action,1,(byte)group,(byte)slot,0,0});
     }
 
     static void set(Transport io, int packetSize, int id, byte[] value) throws IOException {

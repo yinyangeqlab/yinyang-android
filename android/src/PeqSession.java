@@ -13,7 +13,7 @@ final class PeqSession {
     final Peq original;
     Peq confirmed, pending;
     int saveTarget = -1;
-    String newSlotName;
+    String newSlotName, previousSlotName;
     PeqSession(int group, int selector, Peq original) {
         this.group = group;
         originalSelector = selector;
@@ -60,7 +60,7 @@ final class PeqSession {
                 "Enable this PEQ group on the 5K first.");
     }
     int preview(GaiaProbe.Connection link, EqSnapshot start, Peq wanted, Journal journal) throws IOException {
-        guard(start);
+        guard(start,false);
         check(saveTarget < 0, "A save still needs verification. Use Verify save.");
         Peq live = block(start, group);
         // The journal precedes the first write and records the actual starting point on retry.
@@ -114,7 +114,7 @@ final class PeqSession {
     }
     void restore(GaiaProbe.Connection link, EqSnapshot start) throws IOException {
         if (!(selector(start, group) == originalSelector && block(start, group).same(original)))
-            guard(start);
+            guard(start,false);
         check(saveTarget < 0, "Verify the pending save before restoring.");
         check(originalSelector >= 0 && originalSelector < 42,
                 "Choose a saved preset first to establish a restore point.");

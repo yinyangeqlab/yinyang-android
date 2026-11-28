@@ -22,6 +22,7 @@ import android.widget.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
@@ -145,6 +146,10 @@ public final class DeviceWorkbench extends AppearanceActivity {
     private String[] stageLabels() { return AppearanceActivity.stages(this); }
     private String workspaceKey(int g) { return (address==null ? "offline" : address)+"."+g; }
     private String pairKey() { return workspaceKey(0)+".pairName"; }
+    private String pairTitleKey(){return pairKey()+".draftTitle";}
+    private String pairTitle(){
+        return records.getString(pairTitleKey(),records.getString(pairKey(),"Paired EQ"));
+    }
     private static final int IMPORT = 1, EXPORT = 2, SIDE_A = 3, SIDE_B = 4;
     private static final String[] GROUPS = {"Main EQ", "Channel Match"};
     private final Runnable tick = new Runnable() {
@@ -237,6 +242,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         if(comparing || recoveryInEitherStage() || routingPending()){feedback="Finish the current device operation before loading a library draft.";return;}
         String[] files={getIntent().getStringExtra("tuningText"),getIntent().getStringExtra("matchText")};
         String title=getIntent().getStringExtra("tuningName");
+        if(title==null || title.trim().isEmpty())title="Library EQ";
         PairedPresets.Stage[] stages=new PairedPresets.Stage[2];
         try{
             for(int i=0;i<2;i++)if(files[i]!=null && !files[i].isEmpty()){
@@ -244,6 +250,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 stages[i]=new PairedPresets.Stage(base.importText(files[i]),title,null);
             }
             SharedPreferences.Editor e=records.edit().remove(pairKey());
+            if(stages[0]!=null && stages[1]!=null)e.putString(pairTitleKey(),title);
+            else e.remove(pairTitleKey());
             for(int i=0;i<2;i++)if(stages[i]!=null)stageLocally(e,i,stages[i]);
             e.apply();group=stages[0]==null?1:0;channel=0;loadWorkspace();
             graphInputs.useFit(getIntent().getStringExtra("graphInputs"));
@@ -258,7 +266,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
         try {
             Peq imported = draft.importText(getIntent().getStringExtra("tuningText"));
             String title = getIntent().getStringExtra("tuningName");
-            SharedPreferences.Editor edit = records.edit().remove(pairKey());
+            if(title==null || title.trim().isEmpty())title="Library EQ";
+            SharedPreferences.Editor edit = records.edit().remove(pairKey()).remove(pairTitleKey());
             stageLocally(edit, 0, new PairedPresets.Stage(imported, title, null));
             String transferId = getIntent().getStringExtra("tuningId");
             if (transferId != null) edit.putString("receivedTuningId", transferId);
@@ -319,6 +328,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 session.pending = dec(pending);
             session.saveTarget = records.getInt(key + ".target", -1);
             session.newSlotName = records.getString(key + ".newName", null);
+            session.previousSlotName = records.getString(key + ".oldName", null);
             draft = session.pending == null ? session.confirmed.copy() : session.pending.copy();
         }
         String saved = records.getString(key + ".draft", null);
@@ -332,7 +342,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
                                              .putInt(k + ".selector", s.originalSelector)
                                              .putString(k + ".confirmed", enc(s.confirmed))
                                              .putInt(k + ".target", s.saveTarget)
-                                             .putString(k + ".newName", s.newSlotName);
+                                             .putString(k + ".newName", s.newSlotName)
+                                             .putString(k + ".oldName", s.previousSlotName);
         if (s.pending == null)
             e.remove(k + ".pending");
         else
@@ -350,7 +361,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         edits[group].clear();
         liveOnStage[group] = false;
         for (String part :
-                new String[] {"original", "selector", "confirmed", "pending", "target", "newName", "draft", "staged", "editUndo", "editRedo"})
+                new String[] {"original", "selector", "confirmed", "pending", "target", "newName", "oldName", "draft", "staged", "editUndo", "editRedo", "titleEdited", "document", "title"})
             e.remove(key() + "." + part);
         e.apply();
         loadWorkspace();
@@ -630,11 +641,12 @@ public final class DeviceWorkbench extends AppearanceActivity {
                         && session.pending==null && session.saveTarget<0 && !records.getBoolean(key()+".staged",false)
                         && draft.same(session.confirmed) && session.confirmed.same(session.original)) {
                     edits[group].clear();
-                    document=null; fileTitle=selected>=22 ? slot(selected-22) : "Factory #"+selected;
-                    records.edit().remove(key()+".document").putString(key()+".title",fileTitle).apply();
+                    document=null; fileTitle=activeTitle(selected);
+                    records.edit().remove(key()+".document").remove(key()+".titleEdited").putString(key()+".title",fileTitle).apply();
                 }
-                if(document==null && selected>=22 && selected<42 && !records.getBoolean(key()+".staged",false)) {
-                    fileTitle=slot(selected-22);
+                if(document==null && selected<42 && !records.getBoolean(key()+".staged",false)
+                        && !records.getBoolean(key()+".titleEdited",false)) {
+                    fileTitle=activeTitle(selected);
                     records.edit().putString(key()+".title",fileTitle).apply();
                 }
                 boolean dirty = session != null
@@ -651,9 +663,10 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     persist(session);
                     keepDraft();
                 } else if (session.saveTarget < 0)
-                    session.guard(state);
+                    session.guard(state,false);
                 fresh = true;
-                String linkedMessage = trackUsrSlot(state);
+                String linkedMessage = records.getBoolean(workspaceKey(0)+".staged",false)
+                        || records.getBoolean(workspaceKey(1)+".staged",false) ? null : trackUsrSlot(state);
                 if (linkedMessage != null) return linkedMessage;
                 return live.parametric()
                         ? ""
@@ -661,6 +674,50 @@ public final class DeviceWorkbench extends AppearanceActivity {
             }
         });
     }
+    private String activeTitle(int selector){
+        if(selector>=22 && selector<42){
+            String title=names[selector-22];
+            return title==null || title.isEmpty() ? "Custom #"+(selector-21) : title;
+        }
+        return selector>=0 && selector<PresetDirectory.FACTORY_NAMES.length
+                ? PresetDirectory.FACTORY_NAMES[selector] : fileTitle;
+    }
+
+    private void drawPower(){
+        boolean ready=fresh && !busy && !recoveryInEitherStage();
+        CompanionEditor.eqPower(body,fresh && recent!=null?recent.enabledStages():-1,3,ready,this::togglePower);
+    }
+
+    private void togglePower(int stage){
+        if(!fresh || recent==null || busy || recoveryInEitherStage())return;
+        final int shown=recent.enabledStages();
+        final String key=workspaceKey(0)+".powerRestore";
+        final int wanted=stage!=0 ? shown^stage : shown!=0 ? 0 : records.getInt(key,3);
+        work("Set EQ power",generation->{
+            ensureWrite();
+            try(GaiaProbe.Connection link=open(generation)){
+                EqSnapshot current=snapshot(link);
+                if(current.enabledStages()!=shown)throw new IOException("EQ power changed. Refresh the 5K first.");
+                recent=EqSnapshot.setPower(link,current,wanted);
+                if(stage==0 && shown!=0)records.edit().putInt(key,shown).apply();
+                if(stage!=0)records.edit().remove(key).apply();
+            }
+            return wanted==0?"EQ bypassed.":wanted==3?"Main and Match enabled.":wanted==1?"Main enabled.":"Channel Match enabled.";
+        });
+    }
+
+    private void renameDraft(boolean pair){
+        PresetShelf.askName(this,"Rename active EQ",pair?pairTitle():fileTitle,"Done",48,title->{
+            if(pair)records.edit().putString(pairTitleKey(),title).apply();
+            else{
+                fileTitle=title;
+                records.edit().putString(key()+".title",title).putBoolean(key()+".titleEdited",true).apply();
+            }
+            draw();
+            return true;
+        });
+    }
+
     private void ensureWrite() throws IOException {
         if (routingPending())
             throw new IOException("Finish the channel swap in Channel Match first.");
@@ -810,7 +867,10 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 persist(restored);
                 session = restored;
                 selected = slot;
-                records.edit().remove(key() + ".staged").apply();
+                fileTitle=activeTitle(slot);
+                document=null;
+                records.edit().remove(key()+".staged").remove(key()+".titleEdited")
+                        .remove(key()+".document").putString(key()+".title",fileTitle).apply();
                 draft = saved;
                 edits[group].record(previous, draft);
                 liveOnStage[group] = false;
@@ -876,37 +936,106 @@ public final class DeviceWorkbench extends AppearanceActivity {
         menu.show();
     }
 
-    private void renamePreset() {
-        final int raw = selected, i = raw - 22;
-        final String expected = names[i];
-        nameDialog("Rename 5K preset", expected == null ? "Custom #" + (i+1) : expected, "Save name", name -> {
-            Peq.require(name.getBytes(StandardCharsets.UTF_8).length <= 32, "Use at most 32 UTF-8 bytes for a 5K name.");
-            if (name.equals(expected)) return;
-            work("Rename preset", g -> {
+    private void renamePreset(){renamePreset(selected-22);}
+
+    private void renamePreset(int slot) {
+        String expected=names[slot];
+        nameDialog("Rename 5K preset",expected==null?"Custom #"+(slot+1):expected,"Save name",title->{
+            Peq.require(title.getBytes(StandardCharsets.UTF_8).length<=32,"Use at most 32 UTF-8 bytes for a 5K name.");
+            if(title.equals(expected))return;
+            work("Rename preset",g->{
                 ensureWrite();
-                EqSnapshot before;
-                try (GaiaProbe.Connection link = open(g)) {
-                    before = snapshot(link);
-                    boolean named = (before.configuration[6 + 9*group + i/8] & (1 << (i%8))) != 0;
-                    if (PeqSession.selector(before,group) != raw || named != (expected != null)
-                            || (named && !expected.equals(slotName(link,group,i))))
-                        throw new IOException("The selected preset changed. Refresh before renaming.");
-                    link.nameSlot(group, i, name);
+                try(GaiaProbe.Connection link=open(g)){
+                    EqSnapshot before=snapshot(link);
+                    boolean named=PresetDirectory.named(before,group,slot);
+                    if(named!=(expected!=null) || named && !expected.equals(slotName(link,group,slot)))
+                        throw new IOException("The preset list changed. Refresh before renaming.");
+                    recent=PresetDirectory.name(link,before,group,slot,title);
                 }
-                ReversibleEqTest.settle();
-                try (GaiaProbe.Connection link = open(g)) {
-                    EqSnapshot after = snapshot(link);
-                    byte[] config = before.configuration.clone();
-                    config[6 + 9*group + i/8] |= 1 << (i%8);
-                    if (!Arrays.equals(config, after.configuration) || !Arrays.equals(before.usr, after.usr)
-                            || !Arrays.equals(before.spk, after.spk) || !name.equals(slotName(link,group,i)))
-                        throw new IOException("Rename needs verification. Refresh to read the saved name.");
+                names[slot]=title;
+                if(selected==22+slot && document==null && !records.getBoolean(key()+".titleEdited",false)
+                        && !records.getBoolean(key()+".staged",false)){
+                    fileTitle=title;
+                    records.edit().putString(key()+".title",title).apply();
                 }
-                names[i] = name;
-                return "Preset name saved and verified. All filters match.";
+                return "Preset name saved.";
             });
         });
     }
+
+    private void manageDeviceSlot(int slot){
+        int preferred=records.getInt(key()+".defaultSlot",-1);
+        String[] choices={"Edit filters","Rename","Move to slot…",slot==preferred?"Clear default":"Set as default","Reset to Flat","Remove preset"};
+        new AlertDialog.Builder(this).setTitle(slot(slot)).setItems(choices,(d,i)->{
+            switch(i){
+                case 0:choosePreset(22+slot,slot(slot));break;
+                case 1:renamePreset(slot);break;
+                case 2:chooseSlotDestination(slot);break;
+                case 3:
+                    records.edit().putInt(key()+".defaultSlot",slot==preferred?-1:slot).apply();
+                    draw();break;
+                case 4:confirmSlotChange(slot,-1,false);break;
+                case 5:confirmSlotChange(slot,-1,true);break;
+                default:break;
+            }
+        }).setNegativeButton("Cancel",null).show();
+    }
+
+    private void chooseSlotDestination(int source){
+        ArrayList<Integer> slots=new ArrayList<>();
+        ArrayList<String> labels=new ArrayList<>();
+        for(int i=0;i<names.length;i++)if(names[i]==null){
+            slots.add(i);labels.add("Slot "+(i+1));
+        }
+        if(slots.isEmpty()){note("No free slot in this bank.");return;}
+        new AlertDialog.Builder(this).setTitle("Move "+slot(source)).setItems(labels.toArray(new String[0]),
+                (d,i)->confirmSlotChange(source,slots.get(i),true)).setNegativeButton("Cancel",null).show();
+    }
+
+    private void confirmSlotChange(int slot,int destination,boolean remove){
+        if(selected>=42 || session==null || session.pending!=null || session.saveTarget>=0
+                || !draft.same(session.confirmed) || !session.confirmed.same(session.original)
+                || records.getBoolean(key()+".staged",false)){
+            note("Save or reload the working EQ before changing device slots.");
+            return;
+        }
+        String title=names[slot];
+        String action=destination>=0?"Move":remove?"Remove":"Reset to Flat";
+        String detail=destination>=0?"The filters and name will move to slot "+(destination+1)+"."
+                :remove?"This replaces the filters with Flat and clears the slot name.":"This replaces the saved filters with Flat.";
+        new AlertDialog.Builder(this).setTitle(action+" · "+slot(slot))
+                .setMessage(detail+" Pause your audio first. The 5K selects presets temporarily to verify the save.")
+                .setNegativeButton("Cancel",null).setPositiveButton(action,(d,i)->work(action,g->{
+                    ensureWrite();
+                    try(GaiaProbe.Connection link=open(g)){
+                        EqSnapshot before=snapshot(link);
+                        session.guard(before,false);
+                        if(PeqSession.selector(before,group)!=selected)
+                            throw new IOException("The active slot changed. Refresh before continuing.");
+                        EqSnapshot after=PresetDirectory.organize(link,before,group,slot,destination,title,remove);
+                        if(remove)names[slot]=null;
+                        if(destination>=0)names[destination]=title;
+                        if(group==0){
+                            String source=usrSlotKey(22+slot);
+                            library.relocateLink(source,destination>=0?usrSlotKey(22+destination):null);
+                        }
+                        if(remove && records.getInt(key()+".defaultSlot",-1)==slot)
+                            records.edit().putInt(key()+".defaultSlot",destination).apply();
+                        int active=PeqSession.selector(after,group);
+                        if(active!=selected || !PeqSession.block(after,group).same(session.confirmed)){
+                            selected=active;draft=PeqSession.block(after,group);
+                            session=new PeqSession(group,active,draft);persist(session);
+                            fileTitle=activeTitle(active);document=null;edits[group].clear();
+                            records.edit().remove(key()+".document").remove(key()+".titleEdited")
+                                    .putString(key()+".title",fileTitle).putString(key()+".reload",enc(draft)).apply();
+                            keepDraft();
+                        }
+                        recent=after;
+                    }
+                    return destination>=0?"Preset moved to slot "+(destination+1)+".":remove?"Slot cleared.":"Slot reset to Flat.";
+                })).show();
+    }
+
     private void nameDialog(String title, String previous, String positive, java.util.function.Consumer<String> save) {
         LinearLayout box = form();
         EditText input = new EditText(this);
@@ -1054,7 +1183,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
     private void savePair() {
         PairedPresets.Stage[] stages={stage(0),stage(1)};
         if (!stages[0].eq.parametric() || !stages[1].eq.parametric()) { note("Choose a parametric EQ in both tabs."); return; }
-        String proposed=records.getString(pairKey(),stages[0].name);
+        String proposed=records.contains(pairTitleKey())||records.contains(pairKey())?pairTitle():stages[0].name;
         nameDialog("Name EQ + Channel Match preset",proposed,"Continue",name->{
             boolean exists=library.read(name)!=null;
             new AlertDialog.Builder(this).setTitle(exists?"Replace "+name+"?":"Save "+name+"?")
@@ -1066,7 +1195,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     SharedPreferences.Editor points=records.edit();
                     for(int g=0;g<2;g++)points.putString(workspaceKey(g)+".reload",enc(mapFileChannels(stages[g].eq)));
                     points.apply();
-                    records.edit().putString(pairKey(),name).apply(); note("EQ + Channel Match preset saved on this phone.");
+                    records.edit().putString(pairKey(),name).remove(pairTitleKey()).apply(); note("EQ + Channel Match preset saved on this phone.");
                 }).setNegativeButton("Cancel",null).show();
         });
     }
@@ -1077,7 +1206,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 PairedPresets.Stage[] stages=library.read(name);
                 if(stages==null || recoveryInEitherStage()){note("Finish pending hardware recovery before opening a pair.");return;}
                 Peq[] drafts={pairedDraft(0,stages[0]),pairedDraft(1,stages[1])};
-                SharedPreferences.Editor e=records.edit().putString(pairKey(),name);
+                SharedPreferences.Editor e=records.edit().putString(pairKey(),name).remove(pairTitleKey());
                 storeStage(e,0,stages[0],drafts[0]);storeStage(e,1,stages[1],drafts[1]);e.apply();
                 Peq next = drafts[group];
                 edits[group].record(draft, next);
@@ -1122,8 +1251,24 @@ public final class DeviceWorkbench extends AppearanceActivity {
             note("No paired presets saved on this phone.");
             return;
         }
-        new AlertDialog.Builder(this).setTitle("Load paired EQ").setItems(choices,(dialog,item)->openPair(choices[item]))
-                .setNegativeButton("Cancel",null).show();
+        PresetShelf shelf=library.shelf();
+        LinearLayout list=form();
+        AlertDialog dialog=editorDialog(list);
+        dialog.setTitle("Paired EQ drafts");
+        String preferred=shelf.preferred();
+        if(library.read(preferred)!=null)button(list,"Load default · "+preferred,()->{dialog.dismiss();openPair(preferred);},true);
+        for(String choice:choices){
+            CompanionEditor.presetRow(list,choice+(choice.equals(shelf.preferred())?" · Default":""),true,
+                ()->{dialog.dismiss();openPair(choice);},
+                ()->{dialog.dismiss();managePair(choice,this::browsePairs);});
+        }
+        dialog.show();
+    }
+
+    private void managePair(String saved,Runnable refresh){
+        library.shelf().manage(this,saved,refresh,title->{
+            if(saved.equals(records.getString(pairKey(),"")))records.edit().putString(pairKey(),title).apply();
+        });
     }
 
     private void importPair(PairFiles.Pair file) {
@@ -1139,7 +1284,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
         PairedPresets.Stage main=stage(0), match=stage(1);
         boolean ready=!busy && !recoveryInEitherStage();
         boolean peq=main.eq.parametric() && match.eq.parametric();
-        CompanionEditor.presetName(body,records.getString(pairKey(),"Paired EQ"));
+        CompanionEditor.presetName(body,pairTitle(),ready,()->renameDraft(true));
+        drawPower();
         CompanionEditor.presetActions(body,false,ready,this::browsePairs,"Save to 5K",false,()->{},
                 ready && peq,this::savePair);
         CompanionEditor.files(body,ready,ready && peq,pairFiles::pick,()->exportPair(main,match));
@@ -1154,7 +1300,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
 
     private void exportPair(PairedPresets.Stage main, PairedPresets.Stage match) {
         try {
-            pairFiles.write(new PairFiles.Pair(records.getString(pairKey(),componentName(main,0)),
+            pairFiles.write(new PairFiles.Pair(records.contains(pairTitleKey())||records.contains(pairKey())?pairTitle():componentName(main,0),
                     main.eq.exportText(),match.eq.exportText()));
         } catch (IllegalArgumentException incompatible) {
             note(incompatible.getMessage());
@@ -1208,7 +1354,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         PairedPresets.Stage[] stages=name==null?null:library.read(name);
         if(stages==null) {records.edit().remove(pairKey()).apply();return null;}
         if(recoveryInEitherStage()) return "Paired Channel Match is available after the pending hardware operation.";
-        SharedPreferences.Editor e=records.edit().putString(pairKey(),name);
+        SharedPreferences.Editor e=records.edit().putString(pairKey(),name).remove(pairTitleKey());
         Peq match=pairedDraft(1,stages[1]);
         storeStage(e,1,stages[1],match);e.apply();
         if(group==1) { draft=match; fileTitle=stages[1].name;
@@ -1451,7 +1597,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
         if(!fresh || busy || session==null)return;
         int i=target-22;
         if(names[i]==null) {
-            nameDialog("Name "+(group==0?"USR":"Speaker")+" slot "+(i+1),"Custom #"+(i+1),"Save to 5K",name->{
+            nameDialog("Name "+(group==0?"USR":"Speaker")+" slot "+(i+1),fileTitle,"Save to 5K",name->{
                 Peq.require(name.getBytes(StandardCharsets.UTF_8).length<=32,"Use at most 32 UTF-8 bytes for a 5K name.");
                 save(target,false,name);
             });
@@ -1465,7 +1611,10 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 .setTitle("Overwrite saved preset?")
                 .setMessage(stageLabels()[group] + " will be saved to " + slot(target - 22)
                         + ".\n\n" + comparison)
-                .setPositiveButton("Save to 5K", (d, w) -> save(target,false,null,previous))
+                .setPositiveButton("Continue", (d, w) -> nameDialog("Save preset name",fileTitle,"Save to 5K",name->{
+                    Peq.require(name.getBytes(StandardCharsets.UTF_8).length<=32,"Use at most 32 UTF-8 bytes for a 5K name.");
+                    save(target,false,name,previous);
+                }))
                 .setNegativeButton("Cancel", null)
                 .show();
     }
@@ -1548,7 +1697,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     if (named != (names[i] != null) || (named && !names[i].equals(slotName(link, group, i))))
                         throw new IOException("Destination slot changed. Refresh before saving.");
                     if (reviewed != null) {
-                        session.guard(before);
+                        session.guard(before,false);
                         int active = PeqSession.selector(before,group);
                         Peq saved = active == target ? PeqSession.block(before,group)
                                 : active == 255 && session.originalSelector == target ? session.original : null;
@@ -1562,7 +1711,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     }
                     session.preview(link, before, wanted, this::persist);
                     session.saveTarget = target;
-                    session.newSlotName = named ? null : newName;
+                    session.newSlotName = newName;
+                    session.previousSlotName=names[i];
                     persist(session);
                     link.preset(group, target, true);
                 }
@@ -1581,7 +1731,7 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     boolean named = (current.configuration[6 + 9 * group + i / 8] & (1 << (i % 8))) != 0;
                     String present=named?slotName(link,group,i):"";
                     if(!present.equals(session.newSlotName)) {
-                        if(!present.isEmpty() && !present.equals("Custom #"+(i+1)))
+                        if(!present.isEmpty() && !present.equals(session.previousSlotName) && !present.equals("Custom #"+(i+1)))
                             throw new IOException("The destination name changed. Inspect the slot before retrying.");
                         link.nameSlot(group,i,session.newSlotName);
                     }
@@ -1598,12 +1748,14 @@ public final class DeviceWorkbench extends AppearanceActivity {
                     if (!actualName.equals(session.newSlotName))
                         throw new IOException("The slot was saved but its name needs verification.");
                     names[target - 22] = actualName;
+                    fileTitle=actualName;
                 }
                 selected = target;
                 if (session.originalSelector != target) edits[group].clear();
                 liveOnStage[group] = false;
                 session = new PeqSession(group, target, wanted);
-                records.edit().remove(key()+".staged").apply();
+                records.edit().remove(key()+".staged").remove(key()+".titleEdited").putString(key()+".title",fileTitle).apply();
+                recent=after;
                 draft = wanted.copy();
                 records.edit().putString(key()+".reload",enc(wanted)).apply();
                 persist(session);
@@ -1673,11 +1825,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 return;
             }
             boolean canStore=!busy && fresh && session!=null && session.pending==null && session.saveTarget<0 && draft.parametric() && !routingPending();
-            int active = session == null ? selected : session.originalSelector;
-            String preset = active >= 22 && active < 42 ? slot(active - 22)
-                    : active == 255 ? "Unsaved device EQ" : active >= 0 ? "Factory #" + active : fileTitle;
-            if(fresh && (selected==255 || session!=null && !draft.same(session.original)))preset+=" · Unsaved";
-            CompanionEditor.presetName(body,preset);
+            CompanionEditor.presetName(body,fileTitle,!busy && !routingPending(),()->renameDraft(false));
+            drawPower();
             inlineStatus=new FilterTable.SyncStatus(this,"5K");
             body.addView(inlineStatus);
             if(verifiedInline && fresh && session!=null && draft.same(session.confirmed))inlineStatus.verified();
@@ -1784,9 +1933,14 @@ public final class DeviceWorkbench extends AppearanceActivity {
         text(body,"Device presets · "+stageLabels()[group],16);
         if(!fresh){text(body,"Connect your 5K to read stored presets.",14);drawPhonePresets();return;}
         boolean ready=!busy && session!=null && session.pending==null && session.saveTarget<0;
+        int preferred=records.getInt(key()+".defaultSlot",-1);
+        if(preferred>=0 && preferred<names.length && names[preferred]!=null)
+            button(body,"Load default · "+activeTitle(22+preferred),()->choosePreset(22+preferred,slot(preferred)),ready && fresh);
         int count=0;
         for(int i=0;i<names.length;i++)if(names[i]!=null){
-            int target=22+i;count++;button(body,slot(i),()->choosePreset(target,slot(target-22)),ready);
+            int slot=i;count++;
+            String label=slot(i)+(i==preferred?" · Default":"");
+            CompanionEditor.presetRow(body,label,ready && fresh,()->choosePreset(22+slot,slot(slot)),()->manageDeviceSlot(slot));
         }
         if(count==0)text(body,"No saved custom presets in this bank.",14);
         android.widget.Switch toggle=new android.widget.Switch(this);toggle.setText("Factory presets");
@@ -1805,7 +1959,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
         String[] names=library.names();
         text(body,"Phone presets",16);
         if(names.length==0)text(body,"No paired presets saved on this phone.",14);
-        for(String name:names)button(body,name,()->openPair(name),!busy && !routingPending());
+        for(String name:names)CompanionEditor.presetRow(body,name+(name.equals(library.shelf().preferred())?" · Default":""),
+                !busy && !routingPending(),()->openPair(name),()->managePair(name,this::draw));
     }
     private void choosePreset(int target,String title){
         Runnable load=()->work("Load device preset",generation->{
@@ -1828,8 +1983,8 @@ public final class DeviceWorkbench extends AppearanceActivity {
                 PeqSession next=new PeqSession(group,target,loaded);persist(next);
                 records.edit().putString(key()+".reload",enc(loaded)).apply();
                 session=next;selected=target;draft=loaded.copy();fresh=true;recent=after;
-                fileTitle=title;document=null;edits[group].clear();liveOnStage[group]=false;
-                records.edit().remove(key()+".document").remove(key()+".staged").putString(key()+".title",title).apply();
+                fileTitle=activeTitle(target);document=null;edits[group].clear();liveOnStage[group]=false;
+                records.edit().remove(key()+".document").remove(key()+".staged").remove(key()+".titleEdited").putString(key()+".title",fileTitle).apply();
                 keepDraft();presetsOpen=false;
                 String paired=trackUsrSlot(after);
                 return paired==null?"Loaded "+title:paired;

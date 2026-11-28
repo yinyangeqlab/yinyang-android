@@ -305,13 +305,63 @@ final class CompanionEditor {
         actions.addView(save,params);
         return save;
     }
-    static void presetName(LinearLayout parent,String name) {
+    static void presetName(LinearLayout parent,String name,boolean editable,Runnable rename) {
         Context c=parent.getContext();
+        LinearLayout row=new LinearLayout(c);
+        row.setGravity(Gravity.CENTER_VERTICAL);
         TextView title=text(c,name,21,INK,true);
         if(android.os.Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);
-        title.setPadding(0,dp(c,8),0,dp(c,6));
-        parent.addView(title);
+        row.addView(title,part());
+        Button button=CompanionActions.buttonForSize(c,"Rename",false,rename);
+        quiet(button);
+        button.setEnabled(editable);
+        button.setContentDescription("Rename active EQ");
+        button.setMinHeight(dp(c,48));
+        row.addView(button);
+        parent.addView(row);
     }
+
+    static void eqPower(LinearLayout parent,int enabled,int available,boolean ready,IntConsumer toggle) {
+        Context c=parent.getContext();
+        LinearLayout row=new LinearLayout(c);
+        String[] labels={"Master","Main","Channel Match"};
+        int[] masks={available,1,2};
+        for(int i=0;i<labels.length;i++){
+            int mask=masks[i];
+            int action=i==0?0:mask;
+            boolean supported=(mask&available)!=0;
+            boolean known=enabled>=0 && supported;
+            boolean on=known && (enabled&mask)!=0;
+            String state=known?(on?"On":"Off"):"—";
+            Button button=CompanionActions.buttonForSize(c,labels[i]+"\n"+state,on,()->toggle.accept(action));
+            button.setGravity(Gravity.CENTER);
+            button.setMinHeight(dp(c,68));
+            button.setPadding(dp(c,2),dp(c,6),dp(c,2),dp(c,6));
+            button.setCompoundDrawablesRelative(null,iconDrawable(c,POWER,on?BLUE:MUTED,18),null,null);
+            button.setCompoundDrawablePadding(dp(c,2));
+            button.setContentDescription(labels[i]+" "+(known?state:supported?"state unavailable":"unavailable in this mode"));
+            button.setEnabled(ready && known);
+            LinearLayout.LayoutParams size=new LinearLayout.LayoutParams(0,-1,1);
+            if(i>0)size.setMarginStart(dp(c,4));
+            row.addView(button,size);
+        }
+        parent.addView(row);
+    }
+
+    static void presetRow(LinearLayout parent,String label,boolean ready,Runnable open,Runnable manage) {
+        Context c=parent.getContext();
+        LinearLayout row=new LinearLayout(c);
+        Button load=CompanionActions.buttonForSize(c,label,false,open);
+        load.setEnabled(ready);
+        row.addView(load,part());
+        Button more=CompanionActions.buttonForSize(c,"⋮",false,manage);
+        quiet(more);
+        more.setContentDescription("Manage "+label);
+        more.setEnabled(ready);
+        row.addView(more,dp(c,48),-2);
+        parent.addView(row);
+    }
+
     static void pairStage(LinearLayout parent,String label,String value,Runnable edit){
         Context c=parent.getContext();
         LinearLayout row=new LinearLayout(c);

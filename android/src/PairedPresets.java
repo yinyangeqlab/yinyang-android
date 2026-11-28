@@ -1,8 +1,6 @@
 package com.yinyangeq.qudelixprobe;
 
 import android.content.SharedPreferences;
-import java.util.ArrayList;
-import java.util.List;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -11,12 +9,8 @@ import org.json.JSONObject;
 final class PairedPresets {
     private final SharedPreferences store;
     PairedPresets(SharedPreferences store) { this.store = store; }
-    String[] names() {
-        List<String> result = new ArrayList<>();
-        for (String key : store.getAll().keySet()) if (key.startsWith("pair/")) result.add(key.substring(5));
-        result.sort(String.CASE_INSENSITIVE_ORDER);
-        return result.toArray(new String[0]);
-    }
+    PresetShelf shelf(){return new PresetShelf(store,"pair/");}
+    String[] names(){return shelf().names().toArray(new String[0]);}
     static final class Stage {
         final Peq eq;
         final String name, uri;
@@ -50,6 +44,13 @@ final class PairedPresets {
             if (stages[0].uri!=null) e.putString("link/"+stages[0].uri,name);
             e.apply();
         } catch (JSONException e) { throw new IllegalArgumentException("Could not store the paired preset.",e); }
+    }
+    void relocateLink(String source,String destination){
+        String name=linked(source);
+        if(name==null)return;
+        SharedPreferences.Editor edit=store.edit().remove("link/"+source);
+        if(destination!=null)edit.putString("link/"+destination,name);
+        edit.apply();
     }
     String linked(String source) { return source==null ? null : store.getString("link/"+source,null); }
     String linkedDocument(String uri,String title,Peq imported) {

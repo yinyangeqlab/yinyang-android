@@ -99,6 +99,26 @@ final class ApplyTest {
             apply.apply(PlusPreset.Mode.SHARED, single);
             expect(d.state.get(0x80)[0] == 17 && Arrays.equals(preserved, d.state.get(0xa3)));
         }
+        Device power=new Device();
+        power.state.get(0x90)[0]|=16;
+        Map<Integer,byte[]> snapshot=new PlusApply(power,status("1.0.3",120)).read(PlusApply.WORKING);
+        expect(PlusApply.enabledStages(snapshot)==1 && PlusApply.availableStages(snapshot)==3);
+        PlusApply applyPower=new PlusApply(power,status("1.0.3",120));
+        applyPower.power(3,1,0);
+        expect(power.writes==1 && power.state.get(0x90)[0]==1 && power.state.get(0xa0)[0]==1);
+        applyPower.power(3,0,2);
+        expect(power.writes==2 && power.state.get(0xa0)[0]==17);
+        for(int id:new int[]{0x80,0x93,0xa3,0xb0,0xb3})
+            expect(Arrays.equals(snapshot.get(id),power.state.get(id)));
+        try{
+            applyPower.power(3,3,0);
+            throw new AssertionError("Stale power state accepted");
+        }catch(IOException expected){expect(power.writes==2);}
+        applyPower.apply(PlusPreset.Mode.LAYERED,plan);
+        expect(PlusApply.enabledStages(applyPower.read(PlusApply.POWER))==2);
+        power.state.get(0x80)[0]=17;
+        applyPower.power(1,0,1);
+        expect(PlusApply.enabledStages(applyPower.read(PlusApply.POWER))==1 && power.state.get(0xa0)[0]==17);
         for (int failure = 0; failure < 3; failure++) {
             Device d = new Device();
             Map<Integer, byte[]> before = new HashMap<>(d.state);

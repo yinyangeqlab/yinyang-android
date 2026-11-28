@@ -115,8 +115,41 @@ public final class WorkbenchTest {
         check(earlyDrop.update(50, null, 6 * minute).equals("Time ETA · 2:04"));
     }
 
+    private static void powerAndPresets() throws IOException {
+        Wire wire=new Wire();
+        wire.block[0].pre(0,-23);
+        wire.block[1].pre(1,-7);
+        wire.slotNames[0][2]="Original";
+        wire.slots[0][2]=wire.block[0].copy();
+        try(GaiaProbe.Connection link=wire.connect()){
+            EqSnapshot start=link.read();
+            EqSnapshot mainOnly=EqSnapshot.setPower(link,start,1);
+            check(mainOnly.enabledStages()==1 && wire.powerWrites==1);
+            check(Arrays.equals(start.usr,mainOnly.usr)&&Arrays.equals(start.spk,mainOnly.spk));
+            wire.rejectPower=1;
+            try{
+                EqSnapshot.setPower(link,mainOnly,2);
+                throw new AssertionError("Unverified power state succeeded");
+            }catch(IOException expected){check(expected.getMessage().contains("restored"));}
+            check(link.read().enabledStages()==1 && wire.saves==0);
+            wire.rejectPower=-1;
+            EqSnapshot disabled=EqSnapshot.setPower(link,link.read(),0);
+            check(disabled.enabledStages()==0);
+            EqSnapshot moved=PresetDirectory.organize(link,disabled,0,2,6,"Original",true);
+            check(moved.enabledStages()==0 && PeqSession.selector(moved,0)==28 && PeqSession.selector(moved,1)==24);
+            check(PeqSession.block(moved,0).pre(0)==-23 && PeqSession.block(moved,1).pre(1)==-7);
+            check(!PresetDirectory.named(moved,0,2) && PresetDirectory.named(moved,0,6));
+            check(wire.slots[0][2].same(Peq.flat(0)));
+            EqSnapshot renamed=PresetDirectory.name(link,moved,0,6,"Renamed");
+            EqSnapshot reset=PresetDirectory.organize(link,renamed,0,6,-1,"Renamed",false);
+            check(PresetDirectory.named(reset,0,6) && PeqSession.block(reset,0).same(Peq.flat(0)));
+            EqSnapshot removed=PresetDirectory.organize(link,reset,0,6,-1,"Renamed",true);
+            check(!PresetDirectory.named(removed,0,6) && PeqSession.selector(removed,0)==0);
+        }
+    }
     public static void main(String[] args) throws Exception {
         batteryEstimate();
+        powerAndPresets();
         for(int deleted:new int[]{0,4,9}){
             Peq ears=Peq.flat(1);ears.pre(0,-15);ears.pre(1,7);
             for(int i=0;i<10;i++)for(int ear=0;ear<2;ear++)ears.band(ear,i,5,120+10*i+ear,i,1024+i);
@@ -484,6 +517,9 @@ public final class WorkbenchTest {
     static final class Wire {
         Peq[] block = {Peq.flat(0), Peq.flat(1)}, stored = {Peq.flat(0), Peq.flat(1)};
         int[] selected = {24, 24};
+        int enabled=3, powerWrites, rejectPower=-1;
+        final String[][] slotNames=new String[2][20];
+        final Peq[][] slots=new Peq[2][20];
         int saves, volume=-1560, volumeWrites, priority, priorityWrites, usbMode, usbWrites;
         boolean ignorePriority, callActive;
         boolean ignoreVolume, swapped;
@@ -559,17 +595,32 @@ public final class WorkbenchTest {
                             byte[] cfg = new byte[19];
                             cfg[0] = (byte) 128;
                             cfg[10] = 1;
-                            cfg[4] = 1;
-                            cfg[13] = 1;
+                            cfg[4] = (byte)(enabled&1);
+                            cfg[13] = (byte)((enabled>>1)&1);
                             cfg[3] = (byte) selected[0];
                             cfg[12] = (byte) selected[1];
                             if (namedSlots) { cfg[6]=1; cfg[15]=2; }
+                            for(int bank=0;bank<2;bank++)for(int slot=0;slot<20;slot++)
+                                if(slotNames[bank][slot]!=null)cfg[6+9*bank+slot/8]|=1<<(slot%8);
                             reply(queue, 0x8121, cfg);
                             break;
+                        case 0x700:
+                            int state=wire.get();
+                            check((g==0 || g==1) && (state==0 || state==1) && !wire.hasRemaining());
+                            powerWrites++;
+                            if(rejectPower!=g)enabled=(enabled&~(1<<g))|(state<<g);
+                            break;
+                        case 0x70a:
+                            int renamed=wire.get()&255;
+                            byte[] title=new byte[wire.get()&255];wire.get(title);
+                            slotNames[g][renamed]=title.length==0?null:new String(title,java.nio.charset.StandardCharsets.UTF_8);
+                            break;
                         case 0x70b:
-                            byte[] label = "Private slot name".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                            int requested=wire.get()&255;
+                            String value=slotNames[g][requested]==null?"Private slot name":slotNames[g][requested];
+                            byte[] label = value.getBytes(java.nio.charset.StandardCharsets.UTF_8);
                             ByteBuffer name = ByteBuffer.allocate(3+label.length)
-                                    .put((byte)g).put(wire.get()).put((byte)label.length).put(label);
+                                    .put((byte)g).put((byte)requested).put((byte)label.length).put(label);
                             reply(queue,0x870c,name.array());
                             break;
                         case 0x123:
@@ -613,11 +664,15 @@ public final class WorkbenchTest {
                         case 0x708:
                             selected[g] = wire.get();
                             stored[g] = block[g].copy();
+                            slots[g][selected[g]-22]=stored[g].copy();
                             saves++;
                             break;
                         case 0x709:
                             selected[g] = wire.get();
-                            block[g] = stored[g].copy();
+                            if(selected[g]==0)block[g]=Peq.flat(g);
+                            else if(selected[g]>=22 && slots[g][selected[g]-22]!=null)
+                                block[g]=slots[g][selected[g]-22].copy();
+                            else block[g]=stored[g].copy();
                             break;
                         default:
                             throw new AssertionError("Unexpected command " + cmd);

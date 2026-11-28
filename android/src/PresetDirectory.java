@@ -102,4 +102,82 @@ final class PresetDirectory {
         if (!Arrays.equals(device.firmwareField, other.device.firmwareField) || !name(group, slot).equals(other.name(group, slot)))
             throw new ProtocolException("The saved preset list changed. Refresh before switching.");
     }
+    static boolean named(EqSnapshot state,int group,int slot){
+        return (state.configuration[6+9*group+slot/8]&(1<<(slot%8)))!=0;
+    }
+
+    static EqSnapshot name(GaiaProbe.Connection link,EqSnapshot before,int group,int slot,String title) throws IOException {
+        link.nameSlot(group,slot,title);
+        ReversibleEqTest.settle();
+        EqSnapshot after=link.read();
+        byte[] expected=before.configuration.clone();
+        int index=6+9*group+slot/8, mask=1<<(slot%8);
+        expected[index]=(byte)(title.isEmpty()?expected[index]&~mask:expected[index]|mask);
+        if(!Arrays.equals(expected,after.configuration) || !Arrays.equals(before.usr,after.usr)
+                || !Arrays.equals(before.spk,after.spk) || !title.isEmpty() && !title.equals(readName(link,group,slot)))
+            throw new IOException("The slot name could not be verified. Refresh the device presets.");
+        return after;
+    }
+
+    static EqSnapshot select(GaiaProbe.Connection link,EqSnapshot before,int group,int raw) throws IOException {
+        if(PeqSession.selector(before,group)==raw)return before;
+        link.preset(group,raw,false);
+        ReversibleEqTest.settle();
+        EqSnapshot after=link.read();
+        byte[] expected=before.configuration.clone();
+        expected[3+9*group]=(byte)raw;
+        if(!Arrays.equals(expected,after.configuration) || !PeqSession.block(before,1-group).same(PeqSession.block(after,1-group)))
+            throw new IOException("The requested slot did not verify.");
+        return after;
+    }
+
+    /** Verify the flash copy independently after reloading the slot. */
+    static EqSnapshot copyWorking(GaiaProbe.Connection link,EqSnapshot before,int group,int slot) throws IOException {
+        int raw=22+slot;
+        link.preset(group,raw,true);
+        ReversibleEqTest.settle();
+        EqSnapshot saved=link.read();
+        byte[] expected=before.configuration.clone();
+        expected[3+9*group]=(byte)raw;
+        int index=6+9*group+slot/8;
+        int bit=1<<(slot%8);
+        if(!named(before,group,slot))expected[index]=(byte)((expected[index]&~bit)|(saved.configuration[index]&bit));
+        if(!Arrays.equals(expected,saved.configuration) || !Arrays.equals(before.usr,saved.usr) || !Arrays.equals(before.spk,saved.spk))
+            throw new IOException("The working EQ could not be verified in the destination slot.");
+        link.preset(group,raw,false);
+        ReversibleEqTest.settle();
+        EqSnapshot reloaded=link.read();
+        if(!Arrays.equals(saved.configuration,reloaded.configuration) || !Arrays.equals(saved.usr,reloaded.usr)
+                || !Arrays.equals(saved.spk,reloaded.spk))
+            throw new IOException("The destination filters differed after reload.");
+        return reloaded;
+    }
+
+    /** Move first copies and verifies the destination; the source is flattened only after that. */
+    static EqSnapshot organize(GaiaProbe.Connection link,EqSnapshot before,int group,int slot,int destination,
+                               String expectedName,boolean remove) throws IOException {
+        int start=PeqSession.selector(before,group);
+        if(start>=42)throw new IOException("Save or reload the working EQ before managing device slots.");
+        if(!named(before,group,slot) || !expectedName.equals(readName(link,group,slot))
+                || destination>=0 && named(before,group,destination))
+            throw new IOException("The preset list changed. Refresh before continuing.");
+        EqSnapshot current=before;
+        try {
+            if(destination>=0){
+                current=select(link,current,group,22+slot);
+                current=copyWorking(link,current,group,destination);
+                current=name(link,current,group,destination,expectedName);
+            }
+            current=select(link,current,group,0);
+            current=copyWorking(link,current,group,slot);
+            if(remove){
+                current=select(link,current,group,0);
+                current=name(link,current,group,slot,"");
+            }
+            int restore=start!=22+slot?start:destination>=0?22+destination:remove?0:start;
+            return select(link,current,group,restore);
+        } catch(IOException error) {
+            throw new IOException("Slot operation stopped. Refresh both slots before retrying. "+error.getMessage(),error);
+        }
+    }
 }

@@ -75,6 +75,11 @@ final class PlusApply {
     }
 
     static Map<Integer,byte[]> plan(Map<Integer,byte[]> before, PlusPreset.Mode mode, PlusPreset.Banks banks) throws IOException {
+        return plan(before,mode,banks,true);
+    }
+
+    private static Map<Integer,byte[]> plan(Map<Integer,byte[]> before,PlusPreset.Mode mode,
+                                           PlusPreset.Banks banks,boolean enable) throws IOException {
         boolean layered = mode == PlusPreset.Mode.LAYERED;
         int[] ids = active(mode);
         Map<Integer, byte[]> after = new LinkedHashMap<>();
@@ -82,12 +87,56 @@ final class PlusApply {
         after.get(MODE)[0] = (byte) ((before.get(MODE)[0] & 15) | (mode.ordinal() << 4));
         for (int i = 1; i < ids.length; i += 2) {
             int group = ids[i], presetId = ids[i + 1];
-            after.get(group)[0] |= 16;
+            if(enable)after.get(group)[0] |= 16;
             after.get(group)[3] = (byte) 255; // Working edits, outside the named preset slots.
             PlusPreset.Channel[] channels = group == 0xa0 ? banks.match : new PlusPreset.Channel[]{banks.user};
             after.put(presetId, preset(before.get(presetId), channels, group == 0xa0 ? 20 : layered ? 10 : 30));
         }
         return after;
+    }
+
+    static final int[] POWER={MODE,0x90,0xa0,0xb0};
+
+    static int availableStages(Map<Integer,byte[]> regulators) throws IOException {
+        int mode=(regulators.get(MODE)[0]&255)>>>4;
+        if(mode>1)throw new IOException("The current EQ layout does not support these power controls.");
+        return mode==0?3:1;
+    }
+
+    static int enabledStages(Map<Integer,byte[]> regulators) throws IOException {
+        if(availableStages(regulators)==1)return (regulators.get(0xb0)[0]>>4)&1;
+        return ((regulators.get(0x90)[0]>>4)&1) | ((regulators.get(0xa0)[0]>>3)&2);
+    }
+
+    void power(int shownLayout,int shownState,int wanted) throws IOException {
+        Map<Integer,byte[]> before=read(WORKING);
+        if(availableStages(before)!=shownLayout || enabledStages(before)!=shownState)
+            throw new IOException("EQ power changed on the 5K Plus. Check the current state before retrying.");
+        Map<Integer,byte[]> expected=new LinkedHashMap<>(before);
+        int[] ids=shownLayout==3?new int[]{0x90,0xa0}:new int[]{0xb0};
+        for(int i=0;i<ids.length;i++){
+            byte[] selector=before.get(ids[i]).clone();
+            selector[0]=(byte)((selector[0]&~16)|(((wanted>>i)&1)<<4));
+            expected.put(ids[i],selector);
+        }
+        try{
+            for(int id:ids)if(!Arrays.equals(before.get(id),expected.get(id)))write(id,expected.get(id));
+            verify(expected,WORKING);
+        }catch(IOException failure){
+            try{
+                Map<Integer,byte[]> current=read(WORKING);
+                for(int id:WORKING){
+                    byte[] now=current.get(id);
+                    if(!Arrays.equals(now,before.get(id)) && !Arrays.equals(now,expected.get(id)))
+                        throw new IOException("The active EQ changed.");
+                }
+                for(int id:ids)if(!Arrays.equals(before.get(id),current.get(id)))write(id,before.get(id));
+                verify(before,WORKING);
+            }catch(IOException recovery){
+                throw new IOException("EQ power could not be verified. Reconnect to check the 5K Plus.",recovery);
+            }
+            throw new IOException("The previous EQ power settings were restored. "+failure.getMessage(),failure);
+        }
     }
 
     /** Apply only working selectors, blocks and mode. No named-slot write is used. */
@@ -112,7 +161,7 @@ final class PlusApply {
     void apply(PlusPreset.Mode mode, PlusPreset.Banks banks) throws IOException {
         int[] ids=active(mode);
         Map<Integer,byte[]> before = read(ids);
-        Map<Integer,byte[]> after = plan(before,mode,banks);
+        Map<Integer,byte[]> after = plan(before,mode,banks,false);
         // Confirm the initial read immediately before the first write.
         verify(before, ids);
         boolean identical = true;

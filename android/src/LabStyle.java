@@ -47,7 +47,7 @@ final class LabStyle {
         s.setMinHeight(dp(s.getContext(),48));
     }
     static final int PRESETS = 0, EQ = 1, AUDIO = 2, LAB = 3, DIAGNOSTICS = 4, BATTERY = 5, HEADPHONES = 6,
-                     TUNING = 7, IMPORT = 8, EXPORT = 9, BLIND = 10, WEBSITE = 11;
+                     TUNING = 7, IMPORT = 8, EXPORT = 9, BLIND = 10, WEBSITE = 11, POWER = 12;
     private LabStyle() {}
     static int dp(Context c, float n) {
         return Math.round(c.getResources().getDisplayMetrics().density * n);
@@ -116,19 +116,22 @@ final class LabStyle {
         };
         quiet(b);
         b.setText(label);
-        int size = dp(c,20);
-        Bitmap bitmap = Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
-        Icon icon = new Icon(c,symbol,enabled ? BLUE : MUTED);
-        icon.layout(0,0,size,size);
-        icon.draw(new Canvas(bitmap));
-        BitmapDrawable image = new BitmapDrawable(c.getResources(),bitmap);
-        image.setBounds(0,0,size,size);
-        b.setCompoundDrawablesRelative(image,null,null,null);
+        b.setCompoundDrawablesRelative(iconDrawable(c,symbol,enabled?BLUE:MUTED,20),null,null,null);
         b.setGravity(Gravity.CENTER); b.setPaddingRelative(dp(c,12),0,dp(c,12),0);
         b.setCompoundDrawablePadding(dp(c,8));
         b.setEnabled(enabled);
         b.setOnClickListener(v -> action.run());
         return b;
+    }
+    static Drawable iconDrawable(Context c,int symbol,int tint,int sizeDp){
+        int size=dp(c,sizeDp);
+        Bitmap bitmap=Bitmap.createBitmap(size,size,Bitmap.Config.ARGB_8888);
+        Icon icon=new Icon(c,symbol,tint);
+        icon.layout(0,0,size,size);
+        icon.draw(new Canvas(bitmap));
+        BitmapDrawable image=new BitmapDrawable(c.getResources(),bitmap);
+        image.setBounds(0,0,size,size);
+        return image;
     }
     static void tab(Button b, boolean on) {
         quiet(b);
@@ -381,6 +384,10 @@ final class LabStyle {
                     line(c,4,17,4,21,20,21,20,17);
                     if(id==IMPORT) { line(c,12,3,12,15); line(c,7,10,12,15,17,10); }
                     else { line(c,12,15,12,3); line(c,7,8,12,3,17,8); }
+                    break;
+                case POWER:
+                    line(c,12,2.8f,12,11.5f);
+                    c.drawArc(4,4.5f,20,20.5f,-52,284,false,p);
                     break;
                 case PRESETS:
                     c.drawRoundRect(3, 4, 21, 11, 2, 2, p);

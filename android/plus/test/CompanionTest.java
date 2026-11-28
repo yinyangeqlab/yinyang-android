@@ -29,16 +29,26 @@ final class CompanionTest {
             }
             if(cmd==6) {
                 int group=report[8], slot=report[9], base=PlusLibrary.base(group);
-                ApplyTest.expect(tag==0x30 && saved[group][slot]==null);
-                saved[group][slot]=state.get(base+3).clone();
-                names[group][slot]=state.get(base+4).clone();
+                ApplyTest.expect(tag==0x30 || tag==0x31);
+                boolean deleting=tag==0x31;
+                saved[group][slot]=deleting?null:state.get(base+3).clone();
+                if(deleting)names[group][slot]=null;
                 ByteBuffer flags=ByteBuffer.wrap(state.get(base+1)).order(ByteOrder.LITTLE_ENDIAN);
-                flags.putInt(0,flags.getInt(0)|(1<<slot)); flags.putInt(8,flags.getInt(8)|(1<<slot));return;
+                int mask=1<<slot;
+                flags.putInt(0,deleting?flags.getInt(0)&~mask:flags.getInt(0)|mask);
+                flags.putInt(8,deleting?flags.getInt(8)&~mask:flags.getInt(8)|mask);
+                return;
             }
             super.send(report);
             if(cmd==4 && report[5]==(byte)128 && (tag==0x90 || tag==0xa0 || tag==0xb0)) {
                 int i=(state.get(tag)[3]&255)-22;
-                if(i>=0 && i<20) state.put(tag+3,saved[(tag-0x90)/16][i].clone());
+                int group=(tag-0x90)/16;
+                if(i>=0 && i<20) state.put(tag+3,saved[group][i].clone());
+                if(i==-22)state.put(tag+3,new byte[PlusLibrary.size(group)]);
+            }
+            if(cmd==4 && report[5]==(byte)128 && (tag==0x94 || tag==0xa4 || tag==0xb4)){
+                byte[] title=state.get(tag);
+                names[title[0]][title[1]]=title.clone();
             }
             if(cmd==4 && tag==0x72) System.arraycopy(state.get(tag),2,state.get(0x70),4,2);
         }
@@ -144,6 +154,19 @@ final class CompanionTest {
             if(choice==3) ApplyTest.expect(PlusLibrary.pairKey(input).equals(PlusLibrary.pairKey(loaded)));
         }
         ApplyTest.expect(PlusLibrary.read(dev).free(3)==2);
+        int[] first={0,0,0};
+        PlusLibrary.load(dev,120,0,first);
+        PlusLibrary.rename(dev,120,0,0,"new preset","Edited");
+        byte[] originalPreset=dev.saved[0][0].clone(),other=dev.saved[1][0].clone();
+        PlusLibrary.organize(dev,120,0,0,3,"Edited",true);
+        ApplyTest.expect(dev.saved[0][0]==null && Arrays.equals(originalPreset,dev.saved[0][3])
+                && Arrays.equals(other,dev.saved[1][0]) && (dev.state.get(0x90)[3]&255)==25);
+        PlusLibrary.organize(dev,120,0,3,-1,"Edited",false);
+        ApplyTest.expect("Edited".equals(PlusLibrary.read(dev).names[0][3]) && PlusLibrary.current(dev,0)[0][0].bands.isEmpty());
+        PlusLibrary.save(dev,120,0,"Replaced",input,3,"Edited");
+        ApplyTest.expect("Replaced".equals(PlusLibrary.read(dev).names[0][3]));
+        PlusLibrary.organize(dev,120,0,3,-1,"Replaced",true);
+        ApplyTest.expect(dev.saved[0][3]==null && (dev.state.get(0x90)[3]&255)==0);
         dev.state.get(0x51)[0]=21;
         dev.state.get(0x34)[4]=45;
         ByteBuffer.wrap(dev.state.get(0x70)).order(ByteOrder.LITTLE_ENDIAN).putShort(4,(short)-1800).putShort(24,(short)23);

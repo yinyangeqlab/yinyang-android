@@ -294,6 +294,11 @@ final class GaiaProbe {
                      .putShort((short)p.impedance()).putShort((short)p.sensitivity()).array());
         }
 
+        void enableEq(int group,boolean enabled) throws IOException {
+            if(group<0 || group>1) throw new ProtocolException("Invalid EQ stage.");
+            send("EQ power",0x0700,new byte[]{(byte)group,(byte)(enabled?1:0)});
+        }
+
         void nameSlot(int group,int slot,String name) throws IOException {
             byte[] text=name.getBytes(java.nio.charset.StandardCharsets.UTF_8);
             if(slot<0 || slot>=20 || text.length>32) throw new ProtocolException("Invalid slot name.");

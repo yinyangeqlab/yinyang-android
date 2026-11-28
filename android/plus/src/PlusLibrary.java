@@ -44,6 +44,19 @@ final class PlusLibrary {
         }
         return library;
     }
+    static String activeName(PlusUsbProtocol.Transport link,int group,byte[] selector) throws IOException {
+        int raw=selector[3]&255;
+        if(raw<FACTORY.length)return FACTORY[raw];
+        return raw<42?slotTitle(link,group,raw-22):"Unsaved device EQ";
+    }
+
+    private static String slotTitle(PlusUsbProtocol.Transport link,int group,int slot) throws IOException {
+        byte[] flags=block(link,base(group)+1,12);
+        if((bytes(flags).getInt(8)&(1<<slot))==0)return "Custom "+(slot+1);
+        String title=new String(PlusUsbProtocol.slotName(link,group,slot),StandardCharsets.UTF_8);
+        return title.isEmpty()?"Custom "+(slot+1):title;
+    }
+
     int free(int choice) throws IOException {
         for (int i=0;i<20;i++) {
             boolean empty = true;
@@ -99,7 +112,7 @@ final class PlusLibrary {
             mode(link,packet,choice);
             for(int g:groups(choice)) {
                 byte[] selector=before.get(base(g)).clone();
-                selector[0]|=16; selector[3]=(byte)wireIndex(slots[g]);
+                selector[3]=(byte)wireIndex(slots[g]);
                 put(link,packet,base(g),selector);
             }
             return current(link,choice);
@@ -123,33 +136,109 @@ final class PlusLibrary {
         return result;
     }
 
-    static int create(PlusUsbProtocol.Transport link,int packet,int choice,String name,PlusPreset.Channel[][] banks) throws IOException {
+    private static int occupied(PlusUsbProtocol.Transport link,int tag) throws IOException {
+        return bytes(block(link,tag+1,12)).getInt();
+    }
+
+    private static byte[] titleBytes(String name) throws IOException {
         byte[] title=name.getBytes(StandardCharsets.UTF_8);
-        if(title.length==0 || title.length>32) throw new IOException("Use a name between 1 and 32 UTF-8 bytes.");
-        int slot=read(link).free(choice);
+        if(title.length==0 || title.length>32)throw new IOException("Use a name between 1 and 32 UTF-8 bytes.");
+        return title;
+    }
+
+    private static void writeName(PlusUsbProtocol.Transport link,int packet,int group,int slot,byte[] title) throws IOException {
+        byte[] named=new byte[(4+title.length+3)/4*4];
+        named[0]=(byte)group;named[1]=(byte)slot;named[2]=(byte)title.length;
+        System.arraycopy(title,0,named,4,title.length);
+        PlusUsbProtocol.set(link,packet,base(group)+4,named);
+    }
+
+    private static void verifySlot(PlusUsbProtocol.Transport link,int group,int slot,String expected) throws IOException {
+        boolean present=(occupied(link,base(group))&(1<<slot))!=0;
+        if(present!=(expected!=null) || present && !expected.equals(slotTitle(link,group,slot)))
+            throw new IOException("The device preset list changed. Refresh before continuing.");
+    }
+
+    static void rename(PlusUsbProtocol.Transport link,int packet,int group,int slot,String from,String to) throws IOException {
+        verifySlot(link,group,slot,from);
+        int tag=base(group);
+        byte[] selector=block(link,tag,4), working=block(link,tag+3,size(group));
+        writeName(link,packet,group,slot,titleBytes(to));
+        verifySlot(link,group,slot,to);
+        if(!Arrays.equals(selector,block(link,tag,4)) || !Arrays.equals(working,block(link,tag+3,size(group))))
+            throw new IOException("The active EQ changed while verifying the rename.");
+    }
+
+    private static byte[] select(PlusUsbProtocol.Transport link,int packet,int tag,int raw) throws IOException {
+        byte[] selector=block(link,tag,4);
+        if((selector[3]&255)!=raw){
+            selector[3]=(byte)raw;
+            put(link,packet,tag,selector);
+        }
+        return selector;
+    }
+
+    private static void saveWorking(PlusUsbProtocol.Transport link,int packet,int group,int slot,byte[] preset,String name)
+            throws IOException {
+        int tag=base(group);
+        select(link,packet,tag,255);
+        put(link,packet,tag+3,preset);
+        writeName(link,packet,group,slot,titleBytes(name));
+        PlusUsbProtocol.saveSlot(link,group,slot);
+        verifySlot(link,group,slot,name);
+        // Select another slot first to ensure readback came from flash, even if Save selected the destination.
+        select(link,packet,tag,0);
+        select(link,packet,tag,22+slot);
+        if(!Arrays.equals(preset,block(link,tag+3,size(group))))throw new IOException("Saved filters did not verify.");
+    }
+
+    static void organize(PlusUsbProtocol.Transport link,int packet,int group,int slot,int destination,String name,boolean remove)
+            throws IOException {
+        int tag=base(group);
+        byte[] layout=block(link,0x80,4);
+        if((layout[0]&255)>>>4 != (group==2?1:0))throw new IOException("Select this EQ mode on the device before managing its slots.");
+        int original=block(link,tag,4)[3]&255;
+        if(original>=42)throw new IOException("Save or reload the working EQ before managing device slots.");
+        verifySlot(link,group,slot,name);
+        if(destination>=0)verifySlot(link,group,destination,null);
+        try{
+            if(destination>=0){
+                select(link,packet,tag,22+slot);
+                byte[] source=block(link,tag+3,size(group));
+                saveWorking(link,packet,group,destination,source,name);
+            }
+            select(link,packet,tag,0);
+            if(remove){
+                PlusUsbProtocol.deleteSlot(link,group,slot);
+                verifySlot(link,group,slot,null);
+            }else{
+                byte[] flat=block(link,tag+3,size(group));
+                saveWorking(link,packet,group,slot,flat,name);
+            }
+            int restore=original!=22+slot?original:destination>=0?22+destination:remove?0:original;
+            select(link,packet,tag,restore);
+            if(!Arrays.equals(layout,block(link,0x80,4)))throw new IOException("The active EQ layout changed.");
+        }catch(IOException failure){
+            throw new IOException("Slot operation stopped. Refresh the device presets before retrying. "+failure.getMessage(),failure);
+        }
+    }
+
+    static int create(PlusUsbProtocol.Transport link,int packet,int choice,String name,PlusPreset.Channel[][] banks) throws IOException {
+        return save(link,packet,choice,name,banks,-1,null);
+    }
+
+    static int save(PlusUsbProtocol.Transport link,int packet,int choice,String name,PlusPreset.Channel[][] banks,
+                    int target,String previousName) throws IOException {
+        titleBytes(name);
+        int slot=target<0?read(link).free(choice):target;
         mode(link,packet,choice);
         int completed=0;
         try {
             for(int g:groups(choice)) {
                 int tag=base(g);
-                // Recheck occupancy immediately before the permanent save. Existing slots are never destinations.
-                int mask=bytes(block(link,tag+1,12)).getInt();
-                if((mask&(1<<slot))!=0) throw new IOException("The destination slot has just been filled.");
-                byte[] selector=block(link,tag,4);
-                selector[0]|=16; selector[3]=(byte)255;
-                put(link,packet,tag,selector);
+                verifySlot(link,g,slot,previousName);
                 byte[] preset=PlusApply.preset(block(link,tag+3,size(g)),banks[g],bands(g));
-                put(link,packet,tag+3,preset);
-                byte[] named=new byte[(4+title.length+3)/4*4];
-                named[0]=(byte)g; named[1]=(byte)slot; named[2]=(byte)title.length;
-                System.arraycopy(title,0,named,4,title.length);
-                PlusUsbProtocol.set(link,packet,tag+4,named);
-                PlusUsbProtocol.saveSlot(link,g,slot);
-                if((bytes(block(link,tag+1,12)).getInt()&(1<<slot))==0 ||
-                        !Arrays.equals(title,PlusUsbProtocol.slotName(link,g,slot))) throw new IOException("Slot name or occupancy did not verify.");
-                selector[3]=(byte)(22+slot);
-                put(link,packet,tag,selector);
-                if(!Arrays.equals(preset,block(link,tag+3,size(g)))) throw new IOException("Saved filters did not verify.");
+                saveWorking(link,packet,g,slot,preset,name);
                 completed++;
             }
         } catch(IOException failure) {

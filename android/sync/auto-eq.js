@@ -592,7 +592,7 @@ function renderComparison(saved,parent){
    el('h3',opt.label,box);
    const kpis=el('div',null,box);kpis.className='fit-kpis';
    function metric(label,v){const col=el('div',null,kpis);el('small',label,col);el('b',v,col);}
-   metric(c?'Stereo RMS':'Website RMS',fixed(c?c.rms:opt.rms,3)+' dB');
+   metric(c?'Stereo RMS':'Main EQ RMS',fixed(c?c.rms:opt.rms,3)+' dB');
    if(c)metric('Peak boost',fixed(c.peak)+' dB');
    metric('Main preamp',fixed(c?result.user[c.ui].preamp:opt.preamp,1)+' dB');
    const activeFilters=c?result.user[c.ui].filters:opt.filters;
@@ -655,11 +655,15 @@ function renderComparison(saved,parent){
      const fill=el('i',null,track);fill.style.width=(100*item.score/maxError)+'%';
    }
    const score=el('span',null,b);el('strong',fixed(item.score,3)+' dB',score);
-   el('small',item.winner?'Stereo RMS':standalone?'Main EQ RMS':'Device limit · website RMS',score);
+   el('small',item.winner?'Stereo RMS':standalone?'Main EQ RMS':'Device limit · Main EQ RMS',score);
  }
- if(!standalone && levels.some(item=>!item.winner))el('small','Results marked Device limit show the calculated website error. They can be inspected here; loading requires a compatible band budget.',budget);
+ if(!standalone && levels.some(item=>!item.winner))el('small','Device limit rows show Main EQ error at a fixed 1 kHz reference. A compatible fit is required to load EQ on the device.',budget);
  const rec=pane(parent,'Recommendations');
  parent.insertBefore(rec,budget);
+ if(!standalone){
+   el('p','Best fit has the lowest stereo RMS among the fits your Qudelix can load. Companion checks filter slots and preamp limits, then scores the rounded filters and any Channel Match together.',rec);
+   el('small',model?'The 5K Plus supports up to 30 Main EQ filters. Main EQ filters above 10 share slots with Channel Match.':'The 5K supports up to 10 Main EQ filters.',rec);
+ }
  const pick=(index,label)=>{if(index<0)return;const c=result.ranked[index],d=el('details',null,rec);d.className='fit-pick';
   const h=el('summary',null,d);el('strong',label,h);el('small',options[result.user[c.ui].index].label+' · '+fixed(c.rms,3)+' dB RMS',h);
   d.ontoggle=()=>{if(d.open && d.children.length===1)showCandidate(d,result.user[c.ui].index,index);};
@@ -687,7 +691,7 @@ function renderComparison(saved,parent){
  }
  all.ontoggle=()=>{if(all.open && !variants.children.length)inspect();};
  if(best>=0){const note=pane(parent,'Choosing between the two'),b=result.ranked[best],h=result.ranked[close];
-  el('p','Best fit follows the target most closely across both ears. RMS error measures the remaining difference. A narrow peak or dip can take more boost to correct.',note);
+  el('p','Companion’s stereo RMS includes overall level differences. Website Personal EQ Tuning aligns the overall level before scoring. Correcting a narrow peak or dip can take more boost.',note);
   el('p','Lower boost, close fit keeps the error within '+fixed(result.windowDb)+' dB RMS of the best and minimizes the highest combined Main EQ and Channel Match boost on either ear. Lower boost usually needs less preamp reduction.',note);
   el('p',best===close?'One preset meets both goals for these curves.':'The lower-boost choice saves '+fixed(b.peak-h.peak)+' dB of peak boost for '+fixed(h.rms-b.rms,3)+' dB more error. Try both on the same passage at matched volume and choose the one you prefer.',note);
  }
