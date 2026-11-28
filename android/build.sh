@@ -26,7 +26,7 @@ mkdir "$scratch/gen"
 "$tools/aapt2" compile --dir "$root/brand" -o "$scratch/brand.zip"
 node "$root/sync/build.mjs" "$scratch/assets"
 "$tools/aapt2" link "$scratch/brand.zip" -A "$scratch/assets" -I "$platform" --manifest "$root/AndroidManifest.xml" \
-    --java "$scratch/gen" --rename-manifest-package com.yinyangeq.companion.preview --debug-mode --version-code 77 --version-name 0.17.3 -o "$scratch/base.apk"
+    --java "$scratch/gen" --rename-manifest-package com.yinyangeq.companion.preview --debug-mode --version-code 78 --version-name 0.17.3 -o "$scratch/base.apk"
 javac --release 8 -Xlint:-options -classpath "$platform" -d "$scratch/classes" "$root"/src/*.java "$root"/plus/src/*.java "$scratch/gen/com/yinyangeq/qudelixprobe/R.java"
 jar --create --file "$scratch/probe.jar" -C "$scratch/classes" .
 "$tools/d8" --lib "$platform" --min-api 26 --output "$scratch/dex" "$scratch/probe.jar"

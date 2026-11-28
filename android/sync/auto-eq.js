@@ -497,8 +497,9 @@ function startFit(m,t,match,run,button){
  function failed(reason){stopJob();progress.remove();button.disabled=false;status(reason);}
  let result,allowed=[];
  try{
-   const url=URL.createObjectURL(new Blob([workerSource],{type:'text/javascript'}));
-   try{job=new Worker(url,{type:'module'});}finally{URL.revokeObjectURL(url);}
+   // The WebView loads the module asynchronously. Keep its URL until stopJob.
+   jobUrl=URL.createObjectURL(new Blob([workerSource],{type:'text/javascript'}));
+   job=new Worker(jobUrl,{type:'module'});
    job.onerror=()=>{const updated=workerSource!==bundledWorker;if(updated){fitterUpdate('');Phone.resetFitter();}failed('The fitter could not finish. Try generating again.');};
    job.onmessage=e=>{
      const data=e.data;

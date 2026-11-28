@@ -1,7 +1,7 @@
 'use strict';
 const main=document.querySelector('main');
 let syncView='library',libraryType='eq',backupName='',backupKind='';
-let library={eqs:[],measurements:[]}, model=false, job, output, linked=false, linkCode='', active='Sync';
+let library={eqs:[],measurements:[]}, model=false, job, jobUrl, output, linked=false, linkCode='', active='Sync';
 let standalone=false;
 let localMeasurement,localTarget,localLeft,localRight,localKind='';
 const el=(tag,value,parent=main)=>{const n=document.createElement(tag);if(value!=null)n.textContent=value;parent.append(n);return n;};
@@ -36,7 +36,11 @@ function pairing(code,issued){
 function requestEnded(reason){
  signedOut();ended=reason;draw();
 }
-function stopJob(){if(job){job.terminate();job=null;}output=null;}
+function stopJob(){
+ if(job){job.terminate();job=null;}
+ if(jobUrl){URL.revokeObjectURL(jobUrl);jobUrl=null;}
+ output=null;
+}
 const someMatch=m=>m && (m.channelMatchPreset || (m.leftPoints?.length && m.rightPoints?.length));
 function peq(bank){
   const fs=bank.filters;const rows=(fs.length?fs:[{hz:1000,gain:0,q:1,type:'PK'}]).map((f,i)=>
